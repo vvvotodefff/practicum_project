@@ -1,9 +1,10 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
-using ProjectWork.DataAccess;
-using ProjectWork.DataAccess.Repositories;
-using ProjectWork.Models;
+using ProjectWork.Infrastructure.Persistence;
+using ProjectWork.Application.Abstractions;
+using ProjectWork.Application.Abstractions.Repositories;
+using ProjectWork.Domain.Entities;
 
 namespace ProjectWork.IntegrationTests;
 
@@ -42,6 +43,7 @@ public sealed class BookingRepositoryTests(PostgresFixture fixture) : DatabaseTe
 
         // Act
         await Bookings.AddAsync(booking);
+        await UnitOfWork.SaveChangesAsync();
 
         // Assert
         await using var scope = NewScope();
@@ -67,7 +69,11 @@ public sealed class BookingRepositoryTests(PostgresFixture fixture) : DatabaseTe
         var invalidBooking = NewBooking(Guid.NewGuid());
 
         // Act / Assert
-        await AssertPostgresErrorAsync(() => Bookings.AddAsync(invalidBooking),
+        await AssertPostgresErrorAsync(async () =>
+        {
+            await Bookings.AddAsync(invalidBooking);
+            await UnitOfWork.SaveChangesAsync();
+        },
             PostgresErrorCodes.ForeignKeyViolation, "FK_bookings_events_event_id");
         await using var scope = NewScope();
         var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
@@ -125,6 +131,7 @@ public sealed class BookingRepositoryTests(PostgresFixture fixture) : DatabaseTe
             var updated = await repository.GetByIdForUpdateAsync(expected.Id);
             updated!.Confirm();
             await repository.UpdateAsync(updated);
+            await scope.ServiceProvider.GetRequiredService<IUnitOfWork>().SaveChangesAsync();
         }
 
         // Act
@@ -202,6 +209,7 @@ public sealed class BookingRepositoryTests(PostgresFixture fixture) : DatabaseTe
 
         // Act
         await Bookings.UpdateAsync(updated);
+        await UnitOfWork.SaveChangesAsync();
 
         // Assert
         await using var scope = NewScope();
@@ -233,6 +241,7 @@ public sealed class BookingRepositoryTests(PostgresFixture fixture) : DatabaseTe
 
         // Act
         await Bookings.UpdateAsync(trackedBooking);
+        await UnitOfWork.SaveChangesAsync();
 
         // Assert
         await using var scope = NewScope();
@@ -259,7 +268,11 @@ public sealed class BookingRepositoryTests(PostgresFixture fixture) : DatabaseTe
         trackedBooking.EventId = Guid.NewGuid();
 
         // Act / Assert
-        await AssertPostgresErrorAsync(() => Bookings.UpdateAsync(trackedBooking),
+        await AssertPostgresErrorAsync(async () =>
+        {
+            await Bookings.UpdateAsync(trackedBooking);
+            await UnitOfWork.SaveChangesAsync();
+        },
             PostgresErrorCodes.ForeignKeyViolation, "FK_bookings_events_event_id");
         await using var scope = NewScope();
         var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
@@ -279,7 +292,11 @@ public sealed class BookingRepositoryTests(PostgresFixture fixture) : DatabaseTe
         var missing = NewBooking(eventItem.Id);
 
         // Act / Assert
-        await Assert.ThrowsAsync<DbUpdateConcurrencyException>(() => Bookings.UpdateAsync(missing));
+        await Assert.ThrowsAsync<DbUpdateConcurrencyException>(async () =>
+        {
+            await Bookings.UpdateAsync(missing);
+            await UnitOfWork.SaveChangesAsync();
+        });
         await using var scope = NewScope();
         Assert.Empty(await scope.ServiceProvider.GetRequiredService<AppDbContext>().Bookings.ToListAsync());
     }

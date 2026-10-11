@@ -1,0 +1,34 @@
+name: .NET CI
+
+on:
+  push:
+    branches: [main, "sprint-*"]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    name: Build and tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Получить код
+        uses: actions/checkout@v7
+
+      - name: Установить .NET 10
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Восстановить зависимости
+        run: dotnet restore ProjectWork.slnx
+
+      - name: Собрать решение
+        run: dotnet build ProjectWork.slnx --configuration Release --no-restore
+
+      - name: Запустить все тесты
+        run: dotnet test ProjectWork.slnx --configuration Release --no-build --no-restore --verbosity normal

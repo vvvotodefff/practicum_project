@@ -1,9 +1,10 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
-using ProjectWork.DataAccess;
-using ProjectWork.DataAccess.Repositories;
-using ProjectWork.Models;
+using ProjectWork.Infrastructure.Persistence;
+using ProjectWork.Application.Abstractions;
+using ProjectWork.Application.Abstractions.Repositories;
+using ProjectWork.Domain.Entities;
 
 namespace ProjectWork.IntegrationTests;
 
@@ -12,6 +13,7 @@ public abstract class DatabaseTest(PostgresFixture fixture) : IAsyncLifetime
     private AsyncServiceScope? _scope;
 
     protected AppDbContext Context => Services.GetRequiredService<AppDbContext>();
+    protected IUnitOfWork UnitOfWork => Services.GetRequiredService<IUnitOfWork>();
     protected IEventRepository Events => Services.GetRequiredService<IEventRepository>();
     protected IBookingRepository Bookings => Services.GetRequiredService<IBookingRepository>();
 

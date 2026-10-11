@@ -1,9 +1,9 @@
 using Microsoft.Extensions.DependencyInjection;
-using System.ComponentModel.DataAnnotations;
-using ProjectWork.DTO;
-using ProjectWork.Exceptions;
-using ProjectWork.Models;
-using ProjectWork.Services;
+using ProjectWork.Application.DTO;
+using ProjectWork.Domain.Exceptions;
+using ProjectWork.Domain.Entities;
+using ProjectWork.Application.Common;
+using ProjectWork.Application.Services;
 
 namespace ProjectWork.Tests;
 
@@ -46,7 +46,7 @@ public class EventServiceTests : IDisposable
         return await _service.CreateEventAsync(NewRequest(title, startAt, endAt, totalSeats));
     }
 
-    private Task<PaginatedResult<Event>> GetAllAsync() => _service.GetEventsAsync(null, null, null, 1, 100);
+    private Task<PaginatedResult<EventInfo>> GetAllAsync() => _service.GetEventsAsync(null, null, null, 1, 100);
 
     // ----- Успешные сценарии -----
 
@@ -72,20 +72,20 @@ public class EventServiceTests : IDisposable
     [Theory]
     [InlineData(0)]
     [InlineData(-5)]
-    public async Task CreateEventAsync_NonPositiveTotalSeats_ThrowsValidationException(int totalSeats)
+    public async Task CreateEventAsync_NonPositiveTotalSeats_ThrowsDomainValidationException(int totalSeats)
     {
         var request = NewRequest("Концерт", new DateTime(2026, 9, 1, 19, 0, 0), new DateTime(2026, 9, 1, 22, 0, 0), totalSeats);
 
-        await Assert.ThrowsAsync<ValidationException>(() => _service.CreateEventAsync(request));
+        await Assert.ThrowsAsync<DomainValidationException>(() => _service.CreateEventAsync(request));
         Assert.Empty((await GetAllAsync()).Items);
     }
 
     [Fact]
-    public async Task CreateEventAsync_EndAtBeforeStartAt_ThrowsValidationException()
+    public async Task CreateEventAsync_EndAtBeforeStartAt_ThrowsDomainValidationException()
     {
         var request = NewRequest("Концерт", new DateTime(2026, 9, 1, 22, 0, 0), new DateTime(2026, 9, 1, 19, 0, 0));
 
-        await Assert.ThrowsAsync<ValidationException>(() => _service.CreateEventAsync(request));
+        await Assert.ThrowsAsync<DomainValidationException>(() => _service.CreateEventAsync(request));
     }
 
     [Fact]
@@ -271,12 +271,12 @@ public class EventServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task UpdateEvent_TotalSeatsBelowOccupied_ThrowsValidationException()
+    public async Task UpdateEvent_TotalSeatsBelowOccupied_ThrowsDomainValidationException()
     {
         var added = await AddEvent("Концерт", new DateTime(2026, 9, 1, 19, 0, 0), new DateTime(2026, 9, 1, 22, 0, 0), 10);
         await _service.TryReserveSeatsAsync(added.Id, 6);
 
-        await Assert.ThrowsAsync<ValidationException>(() => _service.UpdateEventAsync(added.Id,
+        await Assert.ThrowsAsync<DomainValidationException>(() => _service.UpdateEventAsync(added.Id,
             NewUpdate("Концерт", new DateTime(2026, 9, 1, 19, 0, 0), new DateTime(2026, 9, 1, 22, 0, 0), 5)));
 
         // Событие осталось нетронутым

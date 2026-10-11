@@ -1,92 +1,189 @@
-using System.ComponentModel.DataAnnotations;
-using ProjectWork.Models;
+using ProjectWork.Domain.Entities;
+using ProjectWork.Domain.Exceptions;
 
 namespace ProjectWork.Tests;
 
-// Валидация данных события реализована в модели Event (атрибут [Required]
-// и IValidatableObject.Validate), а не в сервисе — поэтому неуспешные
-// сценарии с некорректными данными проверяются здесь.
+// Проверяем доменные правила через публичные операции, а не через DataAnnotations.
 public class EventValidationTests
 {
-    private static List<ValidationResult> Validate(Event eventItem)
+    private sealed record Input(string Title, string? Description, DateTime StartAt,
+        DateTime EndAt, int TotalSeats);
+
+    private static Input ValidInput() => new("Встреча", "Описание",
+        new DateTime(2026, 11, 1, 10, 0, 0, DateTimeKind.Utc),
+        new DateTime(2026, 11, 1, 11, 0, 0, DateTimeKind.Utc), 10);
+
+    public static TheoryData<string, string> InvalidCases => new()
     {
-        var results = new List<ValidationResult>();
-        Validator.TryValidateObject(eventItem, new ValidationContext(eventItem), results, validateAllProperties: true);
-        return results;
+        { "null_title", "Название обязательно" },
+        { "empty_title", "Название обязательно" },
+        { "whitespace_title", "Название обязательно" },
+        { "long_title", "Название не должно превышать 200" },
+        { "long_description", "Описание не должно превышать 2000" },
+        { "missing_start", "Время начала обязательно" },
+        { "missing_end", "Время окончания обязательно" },
+        { "missing_dates", "Время начала обязательно" },
+        { "equal_dates", "Время окончания должно быть позже" },
+        { "reversed_dates", "Время окончания должно быть позже" },
+        { "zero_seats", "Общее количество мест должно быть положительным" },
+        { "negative_seats", "Общее количество мест должно быть положительным" }
+    };
+
+    private static Input InvalidInput(string invalidCase)
+    {
+        var valid = ValidInput();
+        return invalidCase switch
+        {
+            "null_title" => valid with { Title = null! },
+            "empty_title" => valid with { Title = "" },
+            "whitespace_title" => valid with { Title = "   " },
+            "long_title" => valid with { Title = new string('a', 201) },
+            "long_description" => valid with { Description = new string('a', 2001) },
+            "missing_start" => valid with { StartAt = default },
+            "missing_end" => valid with { EndAt = default },
+            "missing_dates" => valid with { StartAt = default, EndAt = default },
+            "equal_dates" => valid with { EndAt = valid.StartAt },
+            "reversed_dates" => valid with { EndAt = valid.StartAt.AddHours(-1) },
+            "zero_seats" => valid with { TotalSeats = 0 },
+            "negative_seats" => valid with { TotalSeats = -1 },
+            _ => throw new ArgumentOutOfRangeException(nameof(invalidCase))
+        };
     }
 
-    private static Event NewEvent() => Event.Create("Встреча", null,
-        new DateTime(2026, 7, 10, 9, 0, 0), new DateTime(2026, 7, 10, 10, 0, 0), 100);
+    private static Event Create(Input input) => Event.Create(input.Title, input.Description,
+        input.StartAt, input.EndAt, input.TotalSeats);
 
     [Fact]
-    public void Validate_CorrectEvent_PassesValidation()
+    public void Create_ValidData_AssignsIdAndAvailableSeats()
     {
-        var eventItem = NewEvent();
-        eventItem.Title = "Встреча";
-        eventItem.StartAt = new DateTime(2026, 7, 10, 9, 0, 0);
-        eventItem.EndAt = new DateTime(2026, 7, 10, 10, 0, 0);
-        eventItem.TotalSeats = 100;
+        // Arrange
+        var input = ValidInput();
 
-        var results = Validate(eventItem);
+        // Act
+        var eventItem = Create(input);
 
-        Assert.Empty(results);
+        // Assert
+        Assert.NotEqual(Guid.Empty, eventItem.Id);
+        Assert.Equal(input.Title, eventItem.Title);
+        Assert.Equal(input.Description, eventItem.Description);
+        Assert.Equal(input.StartAt, eventItem.StartAt);
+        Assert.Equal(input.EndAt, eventItem.EndAt);
+        Assert.Equal(DateTimeKind.Utc, eventItem.StartAt.Kind);
+        Assert.Equal(input.TotalSeats, eventItem.TotalSeats);
+        Assert.Equal(input.TotalSeats, eventItem.AvailableSeats);
+    }
+
+    [Theory]
+    [MemberData(nameof(InvalidCases))]
+    public void Create_InvalidData_ThrowsDomainValidationException(string invalidCase, string message)
+    {
+        // Arrange
+        var input = InvalidInput(invalidCase);
+
+        // Act / Assert
+        var exception = Assert.Throws<DomainValidationException>(() => Create(input));
+        Assert.Contains(message, exception.Message);
+        if (invalidCase == "missing_dates")
+            Assert.Contains("Время окончания обязательно", exception.Message);
+    }
+
+    [Theory]
+    [MemberData(nameof(InvalidCases))]
+    public void Update_InvalidData_DoesNotMutateEvent(string invalidCase, string message)
+    {
+        // Arrange
+        var original = ValidInput();
+        var eventItem = Create(original);
+        var id = eventItem.Id;
+        Assert.True(eventItem.TryReserveSeats(3));
+        var input = InvalidInput(invalidCase);
+
+        // Act / Assert
+        var exception = Assert.Throws<DomainValidationException>(() => eventItem.Update(
+            input.Title, input.Description, input.StartAt, input.EndAt, input.TotalSeats));
+        Assert.Contains(message, exception.Message);
+        if (invalidCase == "missing_dates")
+            Assert.Contains("Время окончания обязательно", exception.Message);
+        Assert.Equal(id, eventItem.Id);
+        Assert.Equal(original.Title, eventItem.Title);
+        Assert.Equal(original.Description, eventItem.Description);
+        Assert.Equal(original.StartAt, eventItem.StartAt);
+        Assert.Equal(original.EndAt, eventItem.EndAt);
+        Assert.Equal(original.TotalSeats, eventItem.TotalSeats);
+        Assert.Equal(7, eventItem.AvailableSeats);
     }
 
     [Fact]
-    public void Validate_EmptyTitle_FailsValidation()
+    public void Create_MaximumStringLengths_AreAllowed()
     {
-        var eventItem = NewEvent();
-        eventItem.Title = "";
-        eventItem.StartAt = new DateTime(2026, 7, 10, 9, 0, 0);
-        eventItem.EndAt = new DateTime(2026, 7, 10, 10, 0, 0);
-        eventItem.TotalSeats = 100;
+        // Arrange
+        var input = ValidInput() with { Title = new string('a', 200), Description = new string('b', 2000) };
 
-        var results = Validate(eventItem);
+        // Act
+        var eventItem = Create(input);
 
-        Assert.Contains(results, r => r.MemberNames.Contains(nameof(Event.Title)));
+        // Assert
+        Assert.Equal(input.Title, eventItem.Title);
+        Assert.Equal(input.Description, eventItem.Description);
     }
 
     [Fact]
-    public void Validate_MissingDates_FailsValidation()
+    public void Update_ValidData_PreservesIdAndOccupiedSeats()
     {
-        var eventItem = NewEvent();
-        eventItem.Title = "Встреча";
-        eventItem.TotalSeats = 100;
-        eventItem.StartAt = default;
-        eventItem.EndAt = default;
+        // Arrange
+        var eventItem = Create(ValidInput());
+        var id = eventItem.Id;
+        Assert.True(eventItem.TryReserveSeats(3));
+        var input = ValidInput() with
+        {
+            Title = new string('a', 200), Description = new string('b', 2000), TotalSeats = 20
+        };
 
-        var results = Validate(eventItem);
+        // Act
+        eventItem.Update(input.Title, input.Description, input.StartAt, input.EndAt, input.TotalSeats);
 
-        Assert.Contains(results, r => r.MemberNames.Contains(nameof(Event.StartAt)));
-        Assert.Contains(results, r => r.MemberNames.Contains(nameof(Event.EndAt)));
+        // Assert
+        Assert.Equal(id, eventItem.Id);
+        Assert.Equal(input.Title, eventItem.Title);
+        Assert.Equal(input.Description, eventItem.Description);
+        Assert.Equal(20, eventItem.TotalSeats);
+        Assert.Equal(17, eventItem.AvailableSeats);
     }
 
     [Fact]
-    public void Validate_EndAtBeforeStartAt_FailsValidation()
+    public void Update_CapacityBelowOccupiedSeats_ThrowsWithoutMutation()
     {
-        var eventItem = NewEvent();
-        eventItem.Title = "Встреча";
-        eventItem.StartAt = new DateTime(2026, 7, 10, 10, 0, 0);
-        eventItem.EndAt = new DateTime(2026, 7, 10, 9, 0, 0);
-        eventItem.TotalSeats = 100;
+        // Arrange
+        var original = ValidInput();
+        var eventItem = Create(original);
+        Assert.True(eventItem.TryReserveSeats(3));
 
-        var results = Validate(eventItem);
-
-        Assert.Contains(results, r => r.MemberNames.Contains(nameof(Event.EndAt)));
+        // Act / Assert
+        Assert.Throws<DomainValidationException>(() => eventItem.Update(
+            "Новое название", null, original.StartAt, original.EndAt, 2));
+        Assert.Equal(original.Title, eventItem.Title);
+        Assert.Equal(original.Description, eventItem.Description);
+        Assert.Equal(10, eventItem.TotalSeats);
+        Assert.Equal(7, eventItem.AvailableSeats);
     }
 
-    [Fact]
-    public void Validate_EndAtEqualsStartAt_FailsValidation()
+    [Theory]
+    [InlineData(DateTimeKind.Unspecified)]
+    [InlineData(DateTimeKind.Local)]
+    [InlineData(DateTimeKind.Utc)]
+    public void ToUtc_NormalizesDateAccordingToKind(DateTimeKind kind)
     {
-        var moment = new DateTime(2026, 7, 10, 9, 0, 0);
-        var eventItem = NewEvent();
-        eventItem.Title = "Встреча";
-        eventItem.StartAt = moment;
-        eventItem.EndAt = moment;
-        eventItem.TotalSeats = 100;
+        // Arrange
+        var value = new DateTime(2026, 11, 1, 10, 0, 0, kind);
+        var expected = kind == DateTimeKind.Local
+            ? value.ToUniversalTime()
+            : DateTime.SpecifyKind(value, DateTimeKind.Utc);
 
-        var results = Validate(eventItem);
+        // Act
+        var result = Event.ToUtc(value);
 
-        Assert.Contains(results, r => r.MemberNames.Contains(nameof(Event.EndAt)));
+        // Assert
+        Assert.Equal(expected, result);
+        Assert.Equal(DateTimeKind.Utc, result.Kind);
     }
 }

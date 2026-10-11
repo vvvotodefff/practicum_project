@@ -1,5 +1,9 @@
 <Solution>
-  <Project Path="ProjectWork.csproj" />
+  <Project Path="ProjectWork.Application/ProjectWork.Application.csproj" />
+  <Project Path="ProjectWork.Presentation/ProjectWork.Presentation.csproj" />
+  <Project Path="ProjectWork.Domain/ProjectWork.Domain.csproj" />
+  <Project Path="ProjectWork.Infrastructure/ProjectWork.Infrastructure.csproj" />
   <Project Path="ProjectWork.IntegrationTests/ProjectWork.IntegrationTests.csproj" />
+  <Project Path="ProjectWork.PresentationTests/ProjectWork.PresentationTests.csproj" />
   <Project Path="ProjectWork.Tests/ProjectWork.Tests.csproj" />
 </Solution>

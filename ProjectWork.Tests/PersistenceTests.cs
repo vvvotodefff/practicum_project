@@ -1,10 +1,11 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
-using ProjectWork.DataAccess;
-using ProjectWork.DTO;
-using ProjectWork.Models;
-using ProjectWork.Services;
+using ProjectWork.Infrastructure.Persistence;
+using ProjectWork.Application.DTO;
+using ProjectWork.Application.Services;
+using ProjectWork.Domain.Entities;
+using ProjectWork.Infrastructure.BackgroundServices;
 
 namespace ProjectWork.Tests;
 
@@ -85,7 +86,7 @@ public class PersistenceTests : IDisposable
             return await scope.ServiceProvider.GetRequiredService<IBookingService>()
                 .MarkAsProcessedAsync(bookingId, BookingStatus.Rejected);
         })));
-        Assert.Single(results.Where(value => value));
+        Assert.Single(results, value => value);
         using var readScope = _database.CreateScope();
         var context = readScope.ServiceProvider.GetRequiredService<AppDbContext>();
         Assert.Equal(2, (await context.Events.SingleAsync()).AvailableSeats);

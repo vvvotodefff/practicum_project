@@ -25,7 +25,9 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\ProjectWork.csproj" />
+    <ProjectReference Include="..\ProjectWork.Domain\ProjectWork.Domain.csproj" />
+    <ProjectReference Include="..\ProjectWork.Application\ProjectWork.Application.csproj" />
+    <ProjectReference Include="..\ProjectWork.Infrastructure\ProjectWork.Infrastructure.csproj" />
   </ItemGroup>
 
 </Project>

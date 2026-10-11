@@ -1,8 +1,8 @@
 using Microsoft.Extensions.DependencyInjection;
-using ProjectWork.DTO;
-using ProjectWork.Exceptions;
-using ProjectWork.Models;
-using ProjectWork.Services;
+using ProjectWork.Application.DTO;
+using ProjectWork.Domain.Exceptions;
+using ProjectWork.Domain.Entities;
+using ProjectWork.Application.Services;
 
 namespace ProjectWork.Tests;
 
@@ -139,7 +139,8 @@ public class BookingServiceTests : IDisposable
         var booking = await _service.CreateBookingAsync(eventItem.Id);
         var before = DateTime.UtcNow;
 
-        booking.Confirm();
+        Assert.True(await _service.MarkAsProcessedAsync(booking.Id, BookingStatus.Confirmed));
+        booking = (await _service.GetBookingByIdAsync(booking.Id))!;
 
         Assert.Equal(BookingStatus.Confirmed, booking.Status);
         Assert.NotNull(booking.ProcessedAt);
@@ -152,7 +153,8 @@ public class BookingServiceTests : IDisposable
         var eventItem = await CreateTestEvent();
         var booking = await _service.CreateBookingAsync(eventItem.Id);
 
-        booking.Reject();
+        Assert.True(await _service.MarkAsProcessedAsync(booking.Id, BookingStatus.Rejected));
+        booking = (await _service.GetBookingByIdAsync(booking.Id))!;
 
         Assert.Equal(BookingStatus.Rejected, booking.Status);
         Assert.NotNull(booking.ProcessedAt);
@@ -166,6 +168,7 @@ public class BookingServiceTests : IDisposable
         Assert.Equal(2, (await _eventService.GetEventByIdAsync(eventItem.Id))!.AvailableSeats);
 
         await _service.MarkAsProcessedAsync(booking.Id, BookingStatus.Rejected);
+        booking = (await _service.GetBookingByIdAsync(booking.Id))!;
 
         Assert.Equal(BookingStatus.Rejected, booking.Status);
         Assert.Equal(3, (await _eventService.GetEventByIdAsync(eventItem.Id))!.AvailableSeats);
@@ -238,7 +241,7 @@ public class BookingServiceTests : IDisposable
         const int totalSeats = 5;
         var eventItem = await CreateTestEvent(totalSeats);
 
-        var bookings = new List<Booking>();
+        var bookings = new List<BookingInfo>();
         for (var i = 0; i < totalSeats; i++)
         {
             bookings.Add(await _service.CreateBookingAsync(eventItem.Id));
