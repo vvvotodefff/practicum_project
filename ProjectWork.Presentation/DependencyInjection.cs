@@ -1,7 +1,7 @@
 using System.Text.Json.Serialization;
 using ProjectWork.Application.DTO;
 
-namespace ProjectWork;
+namespace ProjectWork.Presentation;
 
 /// <summary>Настройки HTTP-слоя: контроллеры, JSON, Problem Details и Swagger.</summary>
 public static class DependencyInjection

@@ -5,7 +5,7 @@ using ProjectWork.Infrastructure.Persistence;
 
 namespace ProjectWork.Infrastructure.Repositories;
 
-/// <summary>Запросы и сохранение броней через общий scoped-контекст EF Core.</summary>
+/// <summary>Запросы и подготовка изменений броней через scoped-контекст EF Core.</summary>
 public sealed class BookingRepository(AppDbContext context) : IBookingRepository
 {
     /// <inheritdoc />
@@ -39,18 +39,16 @@ public sealed class BookingRepository(AppDbContext context) : IBookingRepository
             .Select(b => b.Id).ToListAsync(cancellationToken);
 
     /// <inheritdoc />
-    public async Task AddAsync(Booking booking, CancellationToken cancellationToken = default)
+    public Task AddAsync(Booking booking, CancellationToken cancellationToken = default)
     {
         context.Bookings.Add(booking);
-        // В этом же контексте отслеживается событие с уменьшенным количеством мест.
-        await context.SaveChangesAsync(cancellationToken);
+        return Task.CompletedTask;
     }
 
     /// <inheritdoc />
-    public async Task UpdateAsync(Booking booking, CancellationToken cancellationToken = default)
+    public Task UpdateAsync(Booking booking, CancellationToken cancellationToken = default)
     {
         context.Entry(booking).State = EntityState.Modified;
-        // При отклонении брони также сохраняется возврат места на событии.
-        await context.SaveChangesAsync(cancellationToken);
+        return Task.CompletedTask;
     }
 }

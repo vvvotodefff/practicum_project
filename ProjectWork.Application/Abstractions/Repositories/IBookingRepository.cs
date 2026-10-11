@@ -17,12 +17,9 @@ public interface IBookingRepository
     /// <summary>Получить только идентификаторы броней с указанным статусом.</summary>
     Task<List<Guid>> GetIdsByStatusAsync(BookingStatus status, CancellationToken cancellationToken = default);
 
-    /// <summary>
-    /// Добавить бронь и сохранить все изменения общего контекста,
-    /// включая изменённое через репозиторий событий количество мест.
-    /// </summary>
+    /// <summary>Подготовить добавление брони; сохранение выполняет IUnitOfWork.</summary>
     Task AddAsync(Booking booking, CancellationToken cancellationToken = default);
 
-    /// <summary>Обновить бронь и сохранить все изменения общего контекста.</summary>
+    /// <summary>Подготовить обновление брони; сохранение выполняет IUnitOfWork.</summary>
     Task UpdateAsync(Booking booking, CancellationToken cancellationToken = default);
 }

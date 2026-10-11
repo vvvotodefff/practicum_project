@@ -35,7 +35,7 @@ function Request([string]$method, [string]$path, $body = $null) {
 }
 
 function Start-Api {
-    $arguments = @('run', '--no-build', '--no-launch-profile', '--project', 'ProjectWork.csproj', '--', '--urls', $baseUrl)
+    $arguments = @('run', '--no-build', '--no-launch-profile', '--project', 'ProjectWork.Presentation/ProjectWork.Presentation.csproj', '--', '--urls', $baseUrl)
     $script:apiProcess = Start-Process -FilePath 'dotnet' -ArgumentList $arguments -WorkingDirectory $projectRoot -WindowStyle Hidden -PassThru -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath
     for ($attempt = 0; $attempt -lt 100; $attempt++) {
         if ($script:apiProcess.HasExited) {

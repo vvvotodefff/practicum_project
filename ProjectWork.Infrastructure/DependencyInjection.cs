@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using ProjectWork.Application.Abstractions;
 using ProjectWork.Application.Abstractions.Repositories;
 using ProjectWork.Infrastructure.BackgroundServices;
 using ProjectWork.Infrastructure.Persistence;
@@ -21,6 +22,7 @@ public static class DependencyInjection
 
         // Контекст и миграции находятся в одной сборке Infrastructure.
         services.AddDbContext<AppDbContext>(options => options.UseNpgsql(connectionString));
+        services.AddScoped<IUnitOfWork, UnitOfWork>();
         services.AddScoped<IEventRepository, EventRepository>();
         services.AddScoped<IBookingRepository, BookingRepository>();
         services.AddHostedService<BookingProcessingService>();

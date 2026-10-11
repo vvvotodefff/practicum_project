@@ -6,11 +6,11 @@ using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
-using ProjectWork.Controllers;
+using ProjectWork.Presentation.Controllers;
 using ProjectWork.Domain.Entities;
 using ProjectWork.Domain.Exceptions;
 using ProjectWork.Application.DTO;
-using ProjectWork.Middleware;
+using ProjectWork.Presentation.Middleware;
 using ProjectWork.Application.Common;
 using ProjectWork.Application.Services;
 

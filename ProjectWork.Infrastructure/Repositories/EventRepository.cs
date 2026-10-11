@@ -6,7 +6,7 @@ using ProjectWork.Infrastructure.Persistence;
 
 namespace ProjectWork.Infrastructure.Repositories;
 
-/// <summary>Запросы и сохранение событий через EF Core.</summary>
+/// <summary>Запросы и подготовка изменений событий через EF Core.</summary>
 public sealed class EventRepository(AppDbContext context) : IEventRepository
 {
     /// <inheritdoc />
@@ -55,18 +55,18 @@ public sealed class EventRepository(AppDbContext context) : IEventRepository
     }
 
     /// <inheritdoc />
-    public async Task AddAsync(Event eventItem, CancellationToken cancellationToken = default)
+    public Task AddAsync(Event eventItem, CancellationToken cancellationToken = default)
     {
         context.Events.Add(eventItem);
-        await context.SaveChangesAsync(cancellationToken);
+        return Task.CompletedTask;
     }
 
     /// <inheritdoc />
-    public async Task UpdateAsync(Event eventItem, CancellationToken cancellationToken = default)
+    public Task UpdateAsync(Event eventItem, CancellationToken cancellationToken = default)
     {
         // Обновляем только событие, а не граф его навигационных свойств.
         context.Entry(eventItem).State = EntityState.Modified;
-        await context.SaveChangesAsync(cancellationToken);
+        return Task.CompletedTask;
     }
 
     /// <inheritdoc />
@@ -81,7 +81,6 @@ public sealed class EventRepository(AppDbContext context) : IEventRepository
         bookings.IsLoaded = false;
         await bookings.LoadAsync(cancellationToken);
         context.Events.Remove(eventItem);
-        await context.SaveChangesAsync(cancellationToken);
         return true;
     }
 }

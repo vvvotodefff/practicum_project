@@ -46,7 +46,7 @@ public class EventServiceTests : IDisposable
         return await _service.CreateEventAsync(NewRequest(title, startAt, endAt, totalSeats));
     }
 
-    private Task<PaginatedResult<Event>> GetAllAsync() => _service.GetEventsAsync(null, null, null, 1, 100);
+    private Task<PaginatedResult<EventInfo>> GetAllAsync() => _service.GetEventsAsync(null, null, null, 1, 100);
 
     // ----- Успешные сценарии -----
 

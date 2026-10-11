@@ -119,6 +119,7 @@ public sealed class MigrationTests(PostgresFixture fixture) : DatabaseTest(fixtu
 
         // Act
         await Bookings.AddAsync(booking);
+        await UnitOfWork.SaveChangesAsync();
 
         // Assert: читаем SQL-значение напрямую, без обратного преобразования EF.
         var stored = await Context.Database.SqlQuery<string>($"""
@@ -161,7 +162,11 @@ public sealed class MigrationTests(PostgresFixture fixture) : DatabaseTest(fixtu
         }
 
         // Act / Assert
-        await AssertPostgresErrorAsync(() => Events.AddAsync(eventItem), sqlState, constraintName);
+        await AssertPostgresErrorAsync(async () =>
+        {
+            await Events.AddAsync(eventItem);
+            await UnitOfWork.SaveChangesAsync();
+        }, sqlState, constraintName);
     }
 
     [Fact]
@@ -174,7 +179,11 @@ public sealed class MigrationTests(PostgresFixture fixture) : DatabaseTest(fixtu
         duplicate.Id = existing.Id;
 
         // Act / Assert
-        await AssertPostgresErrorAsync(() => Events.AddAsync(duplicate),
+        await AssertPostgresErrorAsync(async () =>
+        {
+            await Events.AddAsync(duplicate);
+            await UnitOfWork.SaveChangesAsync();
+        },
             PostgresErrorCodes.UniqueViolation, "PK_events");
     }
 
@@ -192,7 +201,11 @@ public sealed class MigrationTests(PostgresFixture fixture) : DatabaseTest(fixtu
         duplicate.Id = existing.Id;
 
         // Act / Assert
-        await AssertPostgresErrorAsync(() => Bookings.AddAsync(duplicate),
+        await AssertPostgresErrorAsync(async () =>
+        {
+            await Bookings.AddAsync(duplicate);
+            await UnitOfWork.SaveChangesAsync();
+        },
             PostgresErrorCodes.UniqueViolation, "PK_bookings");
     }
 }

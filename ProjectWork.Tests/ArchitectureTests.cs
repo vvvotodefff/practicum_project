@@ -27,10 +27,10 @@ public class ArchitectureTests
     [Fact]
     public void Infrastructure_DoesNotReferencePresentation() =>
         Assert.DoesNotContain(References(typeof(AppDbContext).Assembly), name =>
-            name == "ProjectWork" || name.StartsWith("Microsoft.AspNetCore", StringComparison.Ordinal));
+            name is "ProjectWork" or "ProjectWork.Presentation" || name.StartsWith("Microsoft.AspNetCore", StringComparison.Ordinal));
 
     [Fact]
     public void CoreTests_DoNotReferencePresentation() =>
         Assert.DoesNotContain(References(typeof(ArchitectureTests).Assembly), name =>
-            name == "ProjectWork" || name.StartsWith("Microsoft.AspNetCore", StringComparison.Ordinal));
+            name is "ProjectWork" or "ProjectWork.Presentation" || name.StartsWith("Microsoft.AspNetCore", StringComparison.Ordinal));
 }

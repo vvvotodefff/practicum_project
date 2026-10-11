@@ -1,4 +1,6 @@
+using ProjectWork.Application.Abstractions;
 using ProjectWork.Application.Abstractions.Repositories;
+using ProjectWork.Application.DTO;
 using ProjectWork.Domain.Exceptions;
 using ProjectWork.Domain.Entities;
 
@@ -7,22 +9,28 @@ namespace ProjectWork.Application.Services;
 /// <summary>Прикладные операции с бронированиями и количеством свободных мест.</summary>
 /// <param name="eventRepository">Доступ к событиям в текущем scope.</param>
 /// <param name="bookingRepository">Доступ к бронированиям в том же scope.</param>
-public class BookingService(IEventRepository eventRepository, IBookingRepository bookingRepository) : IBookingService
+/// <param name="unitOfWork">Атомарное сохранение брони и изменения мест.</param>
+public class BookingService(IEventRepository eventRepository, IBookingRepository bookingRepository, IUnitOfWork unitOfWork) : IBookingService
 {
     /// <inheritdoc />
-    public Task<List<Booking>> GetBookingsAsync(CancellationToken cancellationToken = default) =>
-        bookingRepository.GetAllAsync(cancellationToken: cancellationToken);
+    public async Task<List<BookingInfo>> GetBookingsAsync(CancellationToken cancellationToken = default) =>
+        (await bookingRepository.GetAllAsync(cancellationToken: cancellationToken))
+            .Select(BookingInfo.FromBooking).ToList();
 
     /// <inheritdoc />
-    public Task<Booking?> GetBookingByIdAsync(Guid bookingId, CancellationToken cancellationToken = default) =>
-        bookingRepository.GetByIdAsync(bookingId, cancellationToken);
+    public async Task<BookingInfo?> GetBookingByIdAsync(Guid bookingId, CancellationToken cancellationToken = default)
+    {
+        var booking = await bookingRepository.GetByIdAsync(bookingId, cancellationToken);
+        return booking is null ? null : BookingInfo.FromBooking(booking);
+    }
 
     /// <inheritdoc />
-    public Task<List<Booking>> GetPendingBookingsAsync(CancellationToken cancellationToken = default) =>
-        bookingRepository.GetAllAsync(BookingStatus.Pending, cancellationToken);
+    public async Task<List<BookingInfo>> GetPendingBookingsAsync(CancellationToken cancellationToken = default) =>
+        (await bookingRepository.GetAllAsync(BookingStatus.Pending, cancellationToken))
+            .Select(BookingInfo.FromBooking).ToList();
 
     /// <inheritdoc />
-    public async Task<Booking> CreateBookingAsync(Guid eventId, CancellationToken cancellationToken = default)
+    public async Task<BookingInfo> CreateBookingAsync(Guid eventId, CancellationToken cancellationToken = default)
     {
         await EventWriteLock.Gate.WaitAsync(cancellationToken);
         try
@@ -33,9 +41,10 @@ public class BookingService(IEventRepository eventRepository, IBookingRepository
                 throw new NoAvailableSeatsException("No available seats for this event");
 
             var booking = Booking.Create(eventId);
-            // Репозитории разделяют контекст: бронь и места сохраняются одной транзакцией.
+            // Одна единица работы сохраняет бронь и уменьшение мест атомарно.
             await bookingRepository.AddAsync(booking, cancellationToken);
-            return booking;
+            await unitOfWork.SaveChangesAsync(cancellationToken);
+            return BookingInfo.FromBooking(booking);
         }
         finally { EventWriteLock.Gate.Release(); }
     }
@@ -66,6 +75,7 @@ public class BookingService(IEventRepository eventRepository, IBookingRepository
             }
 
             await bookingRepository.UpdateAsync(booking, cancellationToken);
+            await unitOfWork.SaveChangesAsync(cancellationToken);
             return true;
         }
         finally { EventWriteLock.Gate.Release(); }

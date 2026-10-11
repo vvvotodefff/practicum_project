@@ -5,7 +5,7 @@ using ProjectWork.Application.Services;
 using ProjectWork.Application.Common;
 using ProjectWork.Domain.Exceptions;
 
-namespace ProjectWork.Controllers
+namespace ProjectWork.Presentation.Controllers
 {
     /// <summary>HTTP-операции создания, чтения, обновления и удаления событий.</summary>
     [ApiController]
@@ -42,13 +42,7 @@ namespace ProjectWork.Controllers
             [FromQuery][Range(1, int.MaxValue)] int pageSize = 10)
         {
             var result = await _eventService.GetEventsAsync(title, from, to, page, pageSize);
-            return Ok(new PaginatedResult<EventInfo>
-            {
-                TotalCount = result.TotalCount,
-                Page = result.Page,
-                PageSize = result.PageSize,
-                Items = result.Items.Select(EventInfo.FromEvent).ToList()
-            });
+            return Ok(result);
         }
 
         /// <summary>
@@ -68,7 +62,7 @@ namespace ProjectWork.Controllers
             if (eventItem is null)
                 throw new NotFoundException($"Событие с идентификатором '{id}' не найдено.");
 
-            return Ok(EventInfo.FromEvent(eventItem));
+            return Ok(eventItem);
         }
 
         /// <summary>

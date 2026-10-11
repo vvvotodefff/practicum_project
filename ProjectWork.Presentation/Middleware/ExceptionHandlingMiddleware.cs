@@ -2,7 +2,7 @@
 using Microsoft.AspNetCore.Mvc;
 using ProjectWork.Domain.Exceptions;
 
-namespace ProjectWork.Middleware
+namespace ProjectWork.Presentation.Middleware
 {
     /// <summary>Преобразует исключения в HTTP-ответы Problem Details.</summary>
     public class ExceptionHandlingMiddleware

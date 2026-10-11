@@ -8,7 +8,6 @@
 После перезапуска API данные сохраняются.
 
 [Репозиторий на GitHub](https://github.com/vvvotodefff/practicum_sprint_1_project).
-Результаты итоговой проверки: [чек-лист седьмого спринта](docs/sprint-7-checklist.md).
 
 `ProjectWork.Domain` — отдельная библиотека с `Event`, `Booking`, `BookingStatus`
 и доменными исключениями. Она не зависит от других проектов, EF Core, ASP.NET Core,
@@ -18,25 +17,28 @@ JSON-сериализации или DataAnnotations. Правила созда�
 навигационных свойств, поэтому формат JSON не зависит от графа сущностей.
 
 `ProjectWork.Application` содержит сервисы, их интерфейсы, интерфейсы репозиториев,
-DTO, `PaginatedResult<T>` и общий семафор записи `EventWriteLock`.
+DTO, порт `IUnitOfWork`, `PaginatedResult<T>` и общий семафор записи `EventWriteLock`.
 Из проектов библиотека зависит только от Domain, без ссылок на Infrastructure,
 EF Core и ASP.NET Core. Для `AddApplicationServices()` подключён только пакет
 `Microsoft.Extensions.DependencyInjection.Abstractions`.
 XML-комментарии DTO подключены к Swagger из сборки Application.
 
 `ProjectWork.Infrastructure` содержит `AppDbContext`, Fluent API-конфигурации,
-существующие миграции, реализации репозиториев и `BookingProcessingService`.
+существующие миграции, реализации репозиториев, `UnitOfWork` и `BookingProcessingService`.
 Зависит от Application и Domain, но не от веб-проекта. EF Core, Npgsql и абстракции
 фонового выполнения подключены здесь; фоновый сервис через `IServiceScopeFactory`
 обращается к интерфейсам Application.
 
-`AddInfrastructureServices(configuration)` регистрирует контекст и репозитории
-как Scoped, а фоновый сервис — как Hosted Service. Метод вызывается из `Program.cs`.
+`AddInfrastructureServices(configuration)` регистрирует контекст, репозитории
+и `IUnitOfWork` как Scoped, а фоновый сервис — как Hosted Service.
+Метод вызывается из `Program.cs`.
 Строка подключения остаётся в конфигурации веб-проекта, её отсутствие проверяется
 при регистрации. HTTP-контракты и правила бронирования не изменены.
 
-Веб-проект `ProjectWork` выполняет роль Presentation: контроллеры принимают HTTP-запросы,
-вызывают интерфейсы Application и возвращают DTO с нужными HTTP-статусами.
+Веб-проект `ProjectWork.Presentation` выполняет роль Presentation: контроллеры принимают HTTP-запросы,
+вызывают интерфейсы Application и возвращают полученные DTO с нужными HTTP-статусами.
+Сервисы Application возвращают `EventInfo`, `BookingInfo` и их коллекции;
+маппинг доменных сущностей выполняется внутри Application.
 Правила дат, мест и статусов бронирований остаются в Application и Domain.
 `ExceptionHandlingMiddleware` преобразует исключения в Problem Details.
 
@@ -53,7 +55,7 @@ XML-комментарии DTO подключены к Swagger из сборки
 | `ProjectWork.Domain` | Сущности, доменные правила и исключения | Нет |
 | `ProjectWork.Application` | Сервисы, DTO, порты репозиториев | Domain |
 | `ProjectWork.Infrastructure` | EF Core, PostgreSQL, репозитории, фоновая обработка | Application, Domain |
-| `ProjectWork` | Presentation: HTTP, middleware, composition root | Application, Infrastructure |
+| `ProjectWork.Presentation` | Presentation: HTTP, middleware, composition root | Application, Infrastructure |
 | `ProjectWork.Tests` | Юнит- и архитектурные тесты | Domain, Application, Infrastructure |
 | `ProjectWork.IntegrationTests` | Репозитории и миграции в PostgreSQL | Domain, Application, Infrastructure |
 | `ProjectWork.PresentationTests` | Контроллеры и HTTP-маппинг ошибок | Presentation и используемые при проверке слои |
@@ -74,7 +76,7 @@ XML-комментарии DTO подключены к Swagger из сборки
 docker compose up -d --wait postgres
 dotnet restore
 dotnet build
-dotnet run --project ProjectWork.csproj --launch-profile http
+dotnet run --project ProjectWork.Presentation/ProjectWork.Presentation.csproj --launch-profile http
 ```
 
 API: [http://localhost:5259/events](http://localhost:5259/events).
@@ -104,7 +106,7 @@ Swagger UI: [http://localhost:5259/swagger](http://localhost:5259/swagger).
 
 ```powershell
 $env:ConnectionStrings__DefaultConnection = "Host=localhost;Port=5433;Database=eventapi;Username=postgres;Password=postgres"
-dotnet run --project ProjectWork.csproj --launch-profile http
+dotnet run --project ProjectWork.Presentation/ProjectWork.Presentation.csproj --launch-profile http
 ```
 
 При запуске API вызывает `app.Services.MigrateDatabaseAsync()`. Этот метод из
@@ -129,14 +131,14 @@ dotnet tool install --global dotnet-ef --version 10.0.12
 
 ```bash
 # Посмотреть миграции и применить их без запуска API
-dotnet ef migrations list --project ProjectWork.Infrastructure/ProjectWork.Infrastructure.csproj --startup-project ProjectWork.csproj
-dotnet ef database update --project ProjectWork.Infrastructure/ProjectWork.Infrastructure.csproj --startup-project ProjectWork.csproj
+dotnet ef migrations list --project ProjectWork.Infrastructure/ProjectWork.Infrastructure.csproj --startup-project ProjectWork.Presentation/ProjectWork.Presentation.csproj
+dotnet ef database update --project ProjectWork.Infrastructure/ProjectWork.Infrastructure.csproj --startup-project ProjectWork.Presentation/ProjectWork.Presentation.csproj
 
 # Проверить, не разошлись ли модель и снимок миграции
-dotnet ef migrations has-pending-model-changes --project ProjectWork.Infrastructure/ProjectWork.Infrastructure.csproj --startup-project ProjectWork.csproj
+dotnet ef migrations has-pending-model-changes --project ProjectWork.Infrastructure/ProjectWork.Infrastructure.csproj --startup-project ProjectWork.Presentation/ProjectWork.Presentation.csproj
 
 # Только после изменения модели: создать НОВУЮ миграцию с осмысленным именем
-dotnet ef migrations add DescribeModelChange --project ProjectWork.Infrastructure/ProjectWork.Infrastructure.csproj --startup-project ProjectWork.csproj --output-dir Persistence/Migrations
+dotnet ef migrations add DescribeModelChange --project ProjectWork.Infrastructure/ProjectWork.Infrastructure.csproj --startup-project ProjectWork.Presentation/ProjectWork.Presentation.csproj --output-dir Persistence/Migrations
 ```
 
 Последняя команда — пример для дальнейшей разработки, для обычного запуска она не нужна.
@@ -248,10 +250,12 @@ Middleware явно задаёт `Content-Type: application/problem+json; charse
 Сервисы не выполняют запросы EF Core и не содержат in-memory хранилищ.
 Репозитории отвечают за доступ к данным, правила бронирования остаются в сервисах и моделях.
 
-`AppDbContext`, оба репозитория, `EventService` и `BookingService`
+`AppDbContext`, `IUnitOfWork`, оба репозитория, `EventService` и `BookingService`
 зарегистрированы как Scoped и разделяют один контекст внутри запроса.
 Для обычного чтения применяется `AsNoTracking`; методы `GetByIdForUpdateAsync`
-возвращают отслеживаемые сущности. Изменения сохраняются через `SaveChangesAsync`.
+возвращают отслеживаемые сущности. Репозитории только подготавливают изменения.
+Сервисы явно вызывают `IUnitOfWork.SaveChangesAsync()` после успешной операции;
+реализация `UnitOfWork` сохраняет общий `AppDbContext` одной транзакцией.
 Fluent API конфигурации автоматически подключаются из сборки.
 Идентификаторы создаются в коде (`ValueGeneratedNever`), статус брони хранится строкой.
 Связь: одно событие — много броней. Удаление события каскадно удаляет его брони.
@@ -282,9 +286,9 @@ Fluent API конфигурации автоматически подключа�
 dotnet test
 ```
 
-В решении три тестовых проекта, всего 206 тестов:
+В решении три тестовых проекта, всего 210 тестов:
 
-- `ProjectWork.Tests` — 112 юнит- и архитектурных тестов, Docker не нужен.
+- `ProjectWork.Tests` — 113 юнит- и архитектурных тестов, Docker не нужен.
   Проверяются доменные правила Create/Update, UTC, сервисы, конкурентность,
   фоновая обработка и направление зависимостей сборок.
   Дополнительно проверяются регистрация Infrastructure, Scoped lifetime, фоновый
@@ -293,7 +297,7 @@ dotnet test
   Для тестов доступа к данным используется EF Core InMemory.
   `TestDatabase` создаёт уникальную БД на экземпляр тестового класса;
   каждый конкурентный запрос использует собственный scope и контекст.
-- `ProjectWork.IntegrationTests` — 81 интеграционный тест с настоящей PostgreSQL 16
+- `ProjectWork.IntegrationTests` — 84 интеграционных теста с настоящей PostgreSQL 16
   через Testcontainers. Проверяются все методы обоих репозиториев, фильтры,
   пагинация, обновление, удаление, транзакции, миграции и ограничения БД.
 - `ProjectWork.PresentationTests` — 13 тестов контроллеров и middleware, Docker не нужен.
@@ -323,7 +327,6 @@ dotnet test --filter "Category=Integration"
 `MigrateAsync()`; тесты коллекции не выполняются параллельно. Рабочая БД из
 `appsettings.json` не затрагивается. После прогона контейнер удаляется.
 Подробности: [интеграционные тесты](ProjectWork.IntegrationTests/README.md).
-Архив результатов шестого спринта: [чек-лист](docs/sprint-6-checklist.md).
 
 После сборки можно выполнить автоматическую HTTP-проверку реального PostgreSQL:
 
@@ -342,28 +345,29 @@ pwsh -File scripts/Verify-Api.ps1
 ## Структура
 
 ```text
-Controllers/                HTTP-эндпоинты
+ProjectWork.Presentation/Controllers/ HTTP-эндпоинты
 ProjectWork.Domain/Entities/ Event, Booking, BookingStatus и доменные правила
 ProjectWork.Domain/Exceptions/ Доменные исключения
+ProjectWork.Application/Abstractions/IUnitOfWork.cs Порт атомарного сохранения
 ProjectWork.Application/Abstractions/Repositories/ Интерфейсы репозиториев
 ProjectWork.Application/Services/ Сервисы, их интерфейсы и общий семафор записи
 ProjectWork.Application/DTO/ Контракты запросов и ответов
 ProjectWork.Application/Common/ PaginatedResult<T>
 ProjectWork.Application/DependencyInjection.cs Регистрация прикладных сервисов
 ProjectWork.Infrastructure/Persistence/ AppDbContext
+ProjectWork.Infrastructure/Persistence/UnitOfWork.cs Атомарное сохранение изменений
 ProjectWork.Infrastructure/Persistence/Configurations/ Маппинг через Fluent API
 ProjectWork.Infrastructure/Persistence/Migrations/ InitialCreate и снимок модели
 ProjectWork.Infrastructure/Repositories/ EF Core-реализации репозиториев
 ProjectWork.Infrastructure/BackgroundServices/ Фоновая обработка бронирований
 ProjectWork.Infrastructure/DependencyInjection.cs Регистрация инфраструктуры
 ProjectWork.Infrastructure/DatabaseInitialization.cs Применение миграций в отдельном scope
-Middleware/                 Преобразование исключений в Problem Details
+ProjectWork.Presentation/Middleware/ Преобразование исключений в Problem Details
 ProjectWork.Tests/          xUnit и EF Core InMemory
 ProjectWork.IntegrationTests/ xUnit и PostgreSQL через Testcontainers
 ProjectWork.PresentationTests/ Контроллеры и middleware, xUnit и InMemory
 scripts/                    Проверка API с настоящей PostgreSQL
-docs/                       Результаты проверки по чек-листу спринта
 docker-compose.yml          Локальная PostgreSQL
-DependencyInjection.cs      Настройки контроллеров, JSON, Problem Details и Swagger
-Program.cs                  Composition root и HTTP pipeline
+ProjectWork.Presentation/DependencyInjection.cs Настройки контроллеров, JSON, Problem Details и Swagger
+ProjectWork.Presentation/Program.cs Composition root и HTTP pipeline
 ```

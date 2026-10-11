@@ -1,7 +1,7 @@
-using ProjectWork;
+using ProjectWork.Presentation;
 using ProjectWork.Application;
 using ProjectWork.Infrastructure;
-using ProjectWork.Middleware;
+using ProjectWork.Presentation.Middleware;
 
 var builder = WebApplication.CreateBuilder(args);
 

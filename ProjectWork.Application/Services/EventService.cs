@@ -1,3 +1,4 @@
+using ProjectWork.Application.Abstractions;
 using ProjectWork.Application.Abstractions.Repositories;
 using ProjectWork.Application.DTO;
 using ProjectWork.Domain.Exceptions;
@@ -8,19 +9,30 @@ namespace ProjectWork.Application.Services;
 
 /// <summary>Прикладные операции с событиями через порт репозитория.</summary>
 /// <param name="eventRepository">Доступ к событиям в текущем scope.</param>
-public class EventService(IEventRepository eventRepository) : IEventService
+/// <param name="unitOfWork">Атомарное сохранение изменений текущего scope.</param>
+public class EventService(IEventRepository eventRepository, IUnitOfWork unitOfWork) : IEventService
 {
     /// <inheritdoc />
-    public Task<PaginatedResult<Event>> GetEventsAsync(string? title, DateTime? from,
-        DateTime? to, int page, int pageSize, CancellationToken cancellationToken = default) =>
-        eventRepository.GetPageAsync(title,
+    public async Task<PaginatedResult<EventInfo>> GetEventsAsync(string? title, DateTime? from,
+        DateTime? to, int page, int pageSize, CancellationToken cancellationToken = default)
+    {
+        var result = await eventRepository.GetPageAsync(title,
             from.HasValue ? Event.ToUtc(from.Value) : null,
             to.HasValue ? Event.ToUtc(to.Value) : null,
             page, pageSize, cancellationToken);
+        return new PaginatedResult<EventInfo>
+        {
+            TotalCount = result.TotalCount, Page = result.Page, PageSize = result.PageSize,
+            Items = result.Items.Select(EventInfo.FromEvent).ToList()
+        };
+    }
 
     /// <inheritdoc />
-    public Task<Event?> GetEventByIdAsync(Guid id, CancellationToken cancellationToken = default) =>
-        eventRepository.GetByIdAsync(id, cancellationToken);
+    public async Task<EventInfo?> GetEventByIdAsync(Guid id, CancellationToken cancellationToken = default)
+    {
+        var eventItem = await eventRepository.GetByIdAsync(id, cancellationToken);
+        return eventItem is null ? null : EventInfo.FromEvent(eventItem);
+    }
 
     /// <inheritdoc />
     public async Task<EventInfo> CreateEventAsync(CreateEvent request, CancellationToken cancellationToken = default)
@@ -28,6 +40,7 @@ public class EventService(IEventRepository eventRepository) : IEventService
         var eventItem = Event.Create(request.Title, request.Description,
             request.StartAt, request.EndAt, request.TotalSeats ?? 0);
         await eventRepository.AddAsync(eventItem, cancellationToken);
+        await unitOfWork.SaveChangesAsync(cancellationToken);
         return EventInfo.FromEvent(eventItem);
     }
 
@@ -43,6 +56,7 @@ public class EventService(IEventRepository eventRepository) : IEventService
             eventItem.Update(request.Title, request.Description, request.StartAt,
                 request.EndAt, request.TotalSeats ?? 0);
             await eventRepository.UpdateAsync(eventItem, cancellationToken);
+            await unitOfWork.SaveChangesAsync(cancellationToken);
             return true;
         }
         finally { EventWriteLock.Gate.Release(); }
@@ -54,7 +68,9 @@ public class EventService(IEventRepository eventRepository) : IEventService
         await EventWriteLock.Gate.WaitAsync(cancellationToken);
         try
         {
-            return await eventRepository.DeleteAsync(id, cancellationToken);
+            if (!await eventRepository.DeleteAsync(id, cancellationToken)) return false;
+            await unitOfWork.SaveChangesAsync(cancellationToken);
+            return true;
         }
         finally { EventWriteLock.Gate.Release(); }
     }
@@ -70,6 +86,7 @@ public class EventService(IEventRepository eventRepository) : IEventService
                 ?? throw new NotFoundException($"Событие с идентификатором '{eventId}' не найдено.");
             if (!eventItem.TryReserveSeats(count)) return false;
             await eventRepository.UpdateAsync(eventItem, cancellationToken);
+            await unitOfWork.SaveChangesAsync(cancellationToken);
             return true;
         }
         finally { EventWriteLock.Gate.Release(); }
@@ -86,6 +103,7 @@ public class EventService(IEventRepository eventRepository) : IEventService
             if (eventItem is null) return;
             eventItem.ReleaseSeats(count);
             await eventRepository.UpdateAsync(eventItem, cancellationToken);
+            await unitOfWork.SaveChangesAsync(cancellationToken);
         }
         finally { EventWriteLock.Gate.Release(); }
     }

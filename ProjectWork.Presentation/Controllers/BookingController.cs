@@ -3,7 +3,7 @@ using ProjectWork.Domain.Exceptions;
 using ProjectWork.Application.DTO;
 using ProjectWork.Application.Services;
 
-namespace ProjectWork.Controllers
+namespace ProjectWork.Presentation.Controllers
 {
     /// <summary>
     /// Бронирование мест на событиях
@@ -38,7 +38,7 @@ namespace ProjectWork.Controllers
             var booking = await _bookingService.CreateBookingAsync(id);
 
             return AcceptedAtAction(nameof(GetBookingById), new { id = booking.Id },
-                BookingInfo.FromBooking(booking));
+                booking);
         }
 
         /// <summary>
@@ -58,7 +58,7 @@ namespace ProjectWork.Controllers
             if (booking is null)
                 throw new NotFoundException($"Бронь с идентификатором '{id}' не найдена.");
 
-            return Ok(BookingInfo.FromBooking(booking));
+            return Ok(booking);
         }
     }
 }

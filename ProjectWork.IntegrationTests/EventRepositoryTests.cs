@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using ProjectWork.Infrastructure.Persistence;
+using ProjectWork.Application.Abstractions;
 using ProjectWork.Application.Abstractions.Repositories;
 
 namespace ProjectWork.IntegrationTests;
@@ -18,6 +19,7 @@ public sealed class EventRepositoryTests(PostgresFixture fixture) : DatabaseTest
 
         // Act
         await Events.AddAsync(eventItem);
+        await UnitOfWork.SaveChangesAsync();
 
         // Assert: новый scope исключает получение объекта только из ChangeTracker.
         await using var scope = NewScope();
@@ -80,6 +82,7 @@ public sealed class EventRepositoryTests(PostgresFixture fixture) : DatabaseTest
             var updated = await repository.GetByIdForUpdateAsync(eventItem.Id);
             updated!.Update("Changed", "Changed description", At(2), At(2, 12), 8);
             await repository.UpdateAsync(updated);
+            await scope.ServiceProvider.GetRequiredService<IUnitOfWork>().SaveChangesAsync();
         }
 
         // Act
@@ -106,6 +109,7 @@ public sealed class EventRepositoryTests(PostgresFixture fixture) : DatabaseTest
 
         // Act
         await Events.UpdateAsync(updated);
+        await UnitOfWork.SaveChangesAsync();
 
         // Assert
         await using var scope = NewScope();
@@ -126,7 +130,11 @@ public sealed class EventRepositoryTests(PostgresFixture fixture) : DatabaseTest
         var missing = NewEvent();
 
         // Act / Assert
-        await Assert.ThrowsAsync<DbUpdateConcurrencyException>(() => Events.UpdateAsync(missing));
+        await Assert.ThrowsAsync<DbUpdateConcurrencyException>(async () =>
+        {
+            await Events.UpdateAsync(missing);
+            await UnitOfWork.SaveChangesAsync();
+        });
         await using var scope = NewScope();
         Assert.Empty(await scope.ServiceProvider.GetRequiredService<AppDbContext>().Events.ToListAsync());
     }
@@ -145,6 +153,7 @@ public sealed class EventRepositoryTests(PostgresFixture fixture) : DatabaseTest
 
         // Act
         var result = await Events.DeleteAsync(removed.Id);
+        await UnitOfWork.SaveChangesAsync();
 
         // Assert
         Assert.True(result);

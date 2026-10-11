@@ -16,12 +16,12 @@ public interface IEventRepository
     /// <summary>Получить отслеживаемое событие, перечитав его актуальное состояние из базы.</summary>
     Task<Event?> GetByIdForUpdateAsync(Guid id, CancellationToken cancellationToken = default);
 
-    /// <summary>Добавить событие и сохранить изменения текущего scope.</summary>
+    /// <summary>Подготовить добавление события; сохранение выполняет IUnitOfWork.</summary>
     Task AddAsync(Event eventItem, CancellationToken cancellationToken = default);
 
-    /// <summary>Обновить событие и сохранить изменения текущего scope.</summary>
+    /// <summary>Подготовить обновление события; сохранение выполняет IUnitOfWork.</summary>
     Task UpdateAsync(Event eventItem, CancellationToken cancellationToken = default);
 
-    /// <summary>Удалить событие вместе с бронями; вернуть false, если события нет.</summary>
+    /// <summary>Подготовить удаление события и броней; вернуть false, если события нет. Сохранение выполняет IUnitOfWork.</summary>
     Task<bool> DeleteAsync(Guid id, CancellationToken cancellationToken = default);
 }

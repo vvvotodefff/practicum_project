@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using ProjectWork.Application.Abstractions;
 using ProjectWork.Application.Abstractions.Repositories;
 using ProjectWork.Infrastructure.Persistence;
 using ProjectWork.Infrastructure.Repositories;
@@ -34,6 +35,7 @@ public sealed class PostgresFixture : IAsyncLifetime
         var connectionString = _container.GetConnectionString();
         var services = new ServiceCollection();
         services.AddDbContext<AppDbContext>(options => options.UseNpgsql(connectionString));
+        services.AddScoped<IUnitOfWork, UnitOfWork>();
         services.AddScoped<IEventRepository, EventRepository>();
         services.AddScoped<IBookingRepository, BookingRepository>();
         _provider = services.BuildServiceProvider(new ServiceProviderOptions

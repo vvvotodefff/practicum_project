@@ -1,5 +1,4 @@
 using ProjectWork.Application.DTO;
-using ProjectWork.Domain.Entities;
 using ProjectWork.Application.Common;
 
 namespace ProjectWork.Application.Services;
@@ -8,11 +7,11 @@ namespace ProjectWork.Application.Services;
 public interface IEventService
 {
     /// <summary>Получить страницу событий с фильтрами по названию и датам.</summary>
-    Task<PaginatedResult<Event>> GetEventsAsync(string? title, DateTime? from, DateTime? to,
+    Task<PaginatedResult<EventInfo>> GetEventsAsync(string? title, DateTime? from, DateTime? to,
         int page, int pageSize, CancellationToken cancellationToken = default);
 
     /// <summary>Получить событие по идентификатору или null, если его нет.</summary>
-    Task<Event?> GetEventByIdAsync(Guid id, CancellationToken cancellationToken = default);
+    Task<EventInfo?> GetEventByIdAsync(Guid id, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Создать событие из данных запроса. Бросает DomainValidationException, если данные некорректны.

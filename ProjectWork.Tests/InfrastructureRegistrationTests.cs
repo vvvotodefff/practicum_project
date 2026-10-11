@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using ProjectWork.Application.Abstractions;
 using ProjectWork.Application.Abstractions.Repositories;
 using ProjectWork.Infrastructure;
 using ProjectWork.Infrastructure.BackgroundServices;
@@ -38,7 +39,7 @@ public class InfrastructureRegistrationTests
         services.AddLogging();
 
         Assert.Same(services, services.AddInfrastructureServices(Configuration()));
-        foreach (var serviceType in new[] { typeof(AppDbContext), typeof(IEventRepository), typeof(IBookingRepository) })
+        foreach (var serviceType in new[] { typeof(AppDbContext), typeof(IEventRepository), typeof(IBookingRepository), typeof(IUnitOfWork) })
             Assert.Equal(ServiceLifetime.Scoped,
                 Assert.Single(services, descriptor => descriptor.ServiceType == serviceType).Lifetime);
 
@@ -51,6 +52,9 @@ public class InfrastructureRegistrationTests
 
         Assert.IsType<EventRepository>(events);
         Assert.IsType<BookingRepository>(bookings);
+        Assert.IsType<UnitOfWork>(first.ServiceProvider.GetRequiredService<IUnitOfWork>());
+        Assert.Same(first.ServiceProvider.GetRequiredService<IUnitOfWork>(), first.ServiceProvider.GetRequiredService<IUnitOfWork>());
+        Assert.NotSame(first.ServiceProvider.GetRequiredService<IUnitOfWork>(), second.ServiceProvider.GetRequiredService<IUnitOfWork>());
         Assert.Same(context, first.ServiceProvider.GetRequiredService<AppDbContext>());
         Assert.Same(events, first.ServiceProvider.GetRequiredService<IEventRepository>());
         Assert.Same(bookings, first.ServiceProvider.GetRequiredService<IBookingRepository>());
