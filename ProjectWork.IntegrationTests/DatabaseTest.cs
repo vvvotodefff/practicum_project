@@ -11,6 +11,7 @@ namespace ProjectWork.IntegrationTests;
 public abstract class DatabaseTest(PostgresFixture fixture) : IAsyncLifetime
 {
     private AsyncServiceScope? _scope;
+    protected Guid UserId { get; private set; }
 
     protected AppDbContext Context => Services.GetRequiredService<AppDbContext>();
     protected IUnitOfWork UnitOfWork => Services.GetRequiredService<IUnitOfWork>();
@@ -26,6 +27,11 @@ public abstract class DatabaseTest(PostgresFixture fixture) : IAsyncLifetime
         // в том числе для каждой строки данных Theory.
         await fixture.ResetDatabaseAsync();
         _scope = fixture.CreateScope();
+        var user = User.Create("integration-user", new string('A', 64));
+        Context.Users.Add(user);
+        await Context.SaveChangesAsync();
+        UserId = user.Id;
+        Context.ChangeTracker.Clear();
     }
 
     public async Task DisposeAsync()
@@ -42,9 +48,9 @@ public abstract class DatabaseTest(PostgresFixture fixture) : IAsyncLifetime
     protected static Event NewEvent(string title = "Test event", int day = 1, int seats = 5) =>
         Event.Create(title, "Integration test", At(day), At(day, 12), seats);
 
-    protected static Booking NewBooking(Guid eventId, BookingStatus status = BookingStatus.Pending)
+    protected Booking NewBooking(Guid eventId, BookingStatus status = BookingStatus.Pending)
     {
-        var booking = Booking.Create(eventId);
+        var booking = Booking.Create(eventId, UserId);
         // PostgreSQL хранит микросекунды, DateTime — 100 нс. Фиксированные даты
         // позволяют сравнивать сохранённые значения без ошибок округления.
         booking.CreatedAt = At(1);

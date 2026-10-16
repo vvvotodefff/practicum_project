@@ -23,7 +23,7 @@ public class ServiceDtoTests
         });
 
         created.Title = "Client changed DTO";
-        var booking = await bookings.CreateBookingAsync(created.Id);
+        var booking = await bookings.CreateBookingAsync(created.Id, database.UserId);
         Assert.True(await bookings.MarkAsProcessedAsync(booking.Id, BookingStatus.Confirmed));
 
         var found = await events.GetEventByIdAsync(created.Id);

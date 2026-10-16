@@ -48,7 +48,7 @@ public class BookingServiceTests : IDisposable
         var eventItem = await CreateTestEvent();
         var before = DateTime.UtcNow;
 
-        var booking = await _service.CreateBookingAsync(eventItem.Id);
+        var booking = await _service.CreateBookingAsync(eventItem.Id, _database.UserId);
 
         Assert.NotEqual(Guid.Empty, booking.Id);
         Assert.Equal(eventItem.Id, booking.EventId);
@@ -62,9 +62,9 @@ public class BookingServiceTests : IDisposable
     {
         var eventItem = await CreateTestEvent();
 
-        var first = await _service.CreateBookingAsync(eventItem.Id);
-        var second = await _service.CreateBookingAsync(eventItem.Id);
-        var third = await _service.CreateBookingAsync(eventItem.Id);
+        var first = await _service.CreateBookingAsync(eventItem.Id, _database.UserId);
+        var second = await _service.CreateBookingAsync(eventItem.Id, _database.UserId);
+        var third = await _service.CreateBookingAsync(eventItem.Id, _database.UserId);
 
         var ids = new[] { first.Id, second.Id, third.Id };
         Assert.Equal(3, ids.Distinct().Count());
@@ -76,7 +76,7 @@ public class BookingServiceTests : IDisposable
     {
         var eventItem = await CreateTestEvent();
 
-        var booking = await _service.CreateBookingAsync(eventItem.Id);
+        var booking = await _service.CreateBookingAsync(eventItem.Id, _database.UserId);
 
         var stored = Assert.Single((await _service.GetBookingsAsync()));
         Assert.Equal(booking.Id, stored.Id);
@@ -86,7 +86,7 @@ public class BookingServiceTests : IDisposable
     public async Task GetBookingByIdAsync_ExistingId_ReturnsBooking()
     {
         var eventItem = await CreateTestEvent();
-        var created = await _service.CreateBookingAsync(eventItem.Id);
+        var created = await _service.CreateBookingAsync(eventItem.Id, _database.UserId);
 
         var found = await _service.GetBookingByIdAsync(created.Id);
 
@@ -102,7 +102,7 @@ public class BookingServiceTests : IDisposable
     public async Task GetBookingByIdAsync_AfterProcessing_ReflectsStatusChange(BookingStatus status)
     {
         var eventItem = await CreateTestEvent();
-        var created = await _service.CreateBookingAsync(eventItem.Id);
+        var created = await _service.CreateBookingAsync(eventItem.Id, _database.UserId);
         var before = DateTime.UtcNow;
 
         var processed = await _service.MarkAsProcessedAsync(created.Id, status);
@@ -119,8 +119,8 @@ public class BookingServiceTests : IDisposable
     public async Task GetPendingBookings_ReturnsOnlyUnprocessedBookings()
     {
         var eventItem = await CreateTestEvent();
-        var first = await _service.CreateBookingAsync(eventItem.Id);
-        await _service.CreateBookingAsync(eventItem.Id);
+        var first = await _service.CreateBookingAsync(eventItem.Id, _database.UserId);
+        await _service.CreateBookingAsync(eventItem.Id, _database.UserId);
 
         await _service.MarkAsProcessedAsync(first.Id, BookingStatus.Confirmed);
 
@@ -136,7 +136,7 @@ public class BookingServiceTests : IDisposable
     public async Task Confirm_SetsConfirmedStatusAndProcessedAt()
     {
         var eventItem = await CreateTestEvent();
-        var booking = await _service.CreateBookingAsync(eventItem.Id);
+        var booking = await _service.CreateBookingAsync(eventItem.Id, _database.UserId);
         var before = DateTime.UtcNow;
 
         Assert.True(await _service.MarkAsProcessedAsync(booking.Id, BookingStatus.Confirmed));
@@ -151,7 +151,7 @@ public class BookingServiceTests : IDisposable
     public async Task Reject_SetsRejectedStatusAndProcessedAt()
     {
         var eventItem = await CreateTestEvent();
-        var booking = await _service.CreateBookingAsync(eventItem.Id);
+        var booking = await _service.CreateBookingAsync(eventItem.Id, _database.UserId);
 
         Assert.True(await _service.MarkAsProcessedAsync(booking.Id, BookingStatus.Rejected));
         booking = (await _service.GetBookingByIdAsync(booking.Id))!;
@@ -164,7 +164,7 @@ public class BookingServiceTests : IDisposable
     public async Task Reject_AndReleaseSeats_RestoresAvailableSeats()
     {
         var eventItem = await CreateTestEvent(3);
-        var booking = await _service.CreateBookingAsync(eventItem.Id);
+        var booking = await _service.CreateBookingAsync(eventItem.Id, _database.UserId);
         Assert.Equal(2, (await _eventService.GetEventByIdAsync(eventItem.Id))!.AvailableSeats);
 
         await _service.MarkAsProcessedAsync(booking.Id, BookingStatus.Rejected);
@@ -179,16 +179,16 @@ public class BookingServiceTests : IDisposable
     {
         // Единственное место занято
         var eventItem = await CreateTestEvent(1);
-        var booking = await _service.CreateBookingAsync(eventItem.Id);
+        var booking = await _service.CreateBookingAsync(eventItem.Id, _database.UserId);
 
         await Assert.ThrowsAsync<NoAvailableSeatsException>(
-            () => _service.CreateBookingAsync(eventItem.Id));
+            () => _service.CreateBookingAsync(eventItem.Id, _database.UserId));
 
         // Отклоняем бронь и возвращаем место в пул
         await _service.MarkAsProcessedAsync(booking.Id, BookingStatus.Rejected);
 
         // Теперь место снова можно занять
-        var newBooking = await _service.CreateBookingAsync(eventItem.Id);
+        var newBooking = await _service.CreateBookingAsync(eventItem.Id, _database.UserId);
 
         Assert.Equal(BookingStatus.Pending, newBooking.Status);
         Assert.NotEqual(booking.Id, newBooking.Id);
@@ -199,7 +199,7 @@ public class BookingServiceTests : IDisposable
     public async Task MarkAsProcessed_PendingStatus_ReturnsFalse()
     {
         var eventItem = await CreateTestEvent();
-        var booking = await _service.CreateBookingAsync(eventItem.Id);
+        var booking = await _service.CreateBookingAsync(eventItem.Id, _database.UserId);
 
         var result = await _service.MarkAsProcessedAsync(booking.Id, BookingStatus.Pending);
 
@@ -214,8 +214,8 @@ public class BookingServiceTests : IDisposable
     {
         var eventItem = await CreateTestEvent(10);
 
-        await _service.CreateBookingAsync(eventItem.Id);
-        await _service.CreateBookingAsync(eventItem.Id);
+        await _service.CreateBookingAsync(eventItem.Id, _database.UserId);
+        await _service.CreateBookingAsync(eventItem.Id, _database.UserId);
 
         var stored = await _eventService.GetEventByIdAsync(eventItem.Id);
         Assert.NotNull(stored);
@@ -228,7 +228,7 @@ public class BookingServiceTests : IDisposable
     {
         var eventItem = await CreateTestEvent(5);
 
-        await _service.CreateBookingAsync(eventItem.Id);
+        await _service.CreateBookingAsync(eventItem.Id, _database.UserId);
 
         var stored = await _eventService.GetEventByIdAsync(eventItem.Id);
         Assert.NotNull(stored);
@@ -244,7 +244,7 @@ public class BookingServiceTests : IDisposable
         var bookings = new List<BookingInfo>();
         for (var i = 0; i < totalSeats; i++)
         {
-            bookings.Add(await _service.CreateBookingAsync(eventItem.Id));
+            bookings.Add(await _service.CreateBookingAsync(eventItem.Id, _database.UserId));
         }
 
         Assert.Equal(totalSeats, bookings.Count);
@@ -258,10 +258,10 @@ public class BookingServiceTests : IDisposable
     {
         var eventItem = await CreateTestEvent(1);
 
-        var first = await _service.CreateBookingAsync(eventItem.Id);
+        var first = await _service.CreateBookingAsync(eventItem.Id, _database.UserId);
 
         var exception = await Assert.ThrowsAsync<NoAvailableSeatsException>(
-            () => _service.CreateBookingAsync(eventItem.Id));
+            () => _service.CreateBookingAsync(eventItem.Id, _database.UserId));
 
         Assert.Equal("No available seats for this event", exception.Message);
         Assert.Equal(BookingStatus.Pending, first.Status);
@@ -276,9 +276,9 @@ public class BookingServiceTests : IDisposable
     {
         var eventItem = await CreateTestEvent(1);
 
-        await _service.CreateBookingAsync(eventItem.Id);
+        await _service.CreateBookingAsync(eventItem.Id, _database.UserId);
         await Assert.ThrowsAsync<NoAvailableSeatsException>(
-            () => _service.CreateBookingAsync(eventItem.Id));
+            () => _service.CreateBookingAsync(eventItem.Id, _database.UserId));
 
         // В хранилище осталась только успешная бронь
         Assert.Single((await _service.GetBookingsAsync()));
@@ -301,7 +301,7 @@ public class BookingServiceTests : IDisposable
                 var service = scope.ServiceProvider.GetRequiredService<IBookingService>();
                 try
                 {
-                    await service.CreateBookingAsync(eventItem.Id);
+                    await service.CreateBookingAsync(eventItem.Id, _database.UserId);
                     return true;
                 }
                 catch (NoAvailableSeatsException)
@@ -330,7 +330,7 @@ public class BookingServiceTests : IDisposable
             {
                 using var scope = _database.CreateScope();
                 return await scope.ServiceProvider.GetRequiredService<IBookingService>()
-                    .CreateBookingAsync(eventItem.Id);
+                    .CreateBookingAsync(eventItem.Id, _database.UserId);
             }))
             .ToArray();
 
@@ -349,7 +349,7 @@ public class BookingServiceTests : IDisposable
         var unknownEventId = Guid.NewGuid();
 
         var exception = await Assert.ThrowsAsync<NotFoundException>(
-            () => _service.CreateBookingAsync(unknownEventId));
+            () => _service.CreateBookingAsync(unknownEventId, _database.UserId));
 
         Assert.Contains(unknownEventId.ToString(), exception.Message);
         Assert.Empty((await _service.GetBookingsAsync()));
@@ -362,7 +362,7 @@ public class BookingServiceTests : IDisposable
         await _eventService.DeleteEventAsync(eventItem.Id);
 
         await Assert.ThrowsAsync<NotFoundException>(
-            () => _service.CreateBookingAsync(eventItem.Id));
+            () => _service.CreateBookingAsync(eventItem.Id, _database.UserId));
 
         Assert.Empty((await _service.GetBookingsAsync()));
     }
@@ -371,7 +371,7 @@ public class BookingServiceTests : IDisposable
     public async Task GetBookingByIdAsync_UnknownId_ReturnsNull()
     {
         var eventItem = await CreateTestEvent();
-        await _service.CreateBookingAsync(eventItem.Id);
+        await _service.CreateBookingAsync(eventItem.Id, _database.UserId);
 
         var found = await _service.GetBookingByIdAsync(Guid.NewGuid());
 

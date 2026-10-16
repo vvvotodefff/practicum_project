@@ -80,7 +80,8 @@ public class InfrastructureRegistrationTests
         Assert.Equal("Npgsql.EntityFrameworkCore.PostgreSQL", context.Database.ProviderName);
         Assert.Equal(ConnectionString, context.Database.GetConnectionString());
         Assert.Equal(typeof(AppDbContext).Assembly, context.GetService<IMigrationsAssembly>().Assembly);
-        Assert.Equal("20261006154025_InitialCreate", Assert.Single(context.Database.GetMigrations()));
+        Assert.Equal(2, context.Database.GetMigrations().Count());
+        Assert.Contains("20261006154025_InitialCreate", context.Database.GetMigrations());
         Assert.False(context.Database.HasPendingModelChanges());
     }
 

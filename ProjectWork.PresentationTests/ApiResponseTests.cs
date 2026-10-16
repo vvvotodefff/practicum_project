@@ -37,7 +37,17 @@ public sealed class ApiResponseTests : IDisposable
         _events = _scope.ServiceProvider.GetRequiredService<IEventService>();
         _bookings = _scope.ServiceProvider.GetRequiredService<IBookingService>();
         _eventsController = new EventsController(_events);
-        _bookingController = new BookingController(_bookings);
+        _bookingController = new BookingController(_bookings)
+        {
+            ControllerContext = new ControllerContext
+            {
+                HttpContext = new DefaultHttpContext
+                {
+                    User = new System.Security.Claims.ClaimsPrincipal(new System.Security.Claims.ClaimsIdentity(
+                        [new("sub", _database.UserId.ToString()), new("role", "User")], "test"))
+                }
+            }
+        };
     }
 
     public void Dispose()
@@ -66,7 +76,7 @@ public sealed class ApiResponseTests : IDisposable
         "id", "title", "description", "startAt", "endAt", "totalSeats", "availableSeats");
 
     private static JsonElement AssertBookingJson(BookingInfo value) => AssertJsonFields(value,
-        "id", "eventId", "status", "createdAt", "processedAt");
+        "id", "eventId", "userId", "status", "createdAt", "processedAt");
 
     [Fact]
     public async Task CreateEvent_ReturnsDtoAndCreatedLocation()
@@ -90,7 +100,7 @@ public sealed class ApiResponseTests : IDisposable
     {
         // Arrange
         var created = await _events.CreateEventAsync(Request());
-        await _bookings.CreateBookingAsync(created.Id);
+        await _bookings.CreateBookingAsync(created.Id, _database.UserId);
 
         // Act
         var result = await _eventsController.GetEventById(created.Id);
@@ -153,7 +163,7 @@ public sealed class ApiResponseTests : IDisposable
     {
         // Arrange
         var created = await _events.CreateEventAsync(Request());
-        var booking = await _bookings.CreateBookingAsync(created.Id);
+        var booking = await _bookings.CreateBookingAsync(created.Id, _database.UserId);
         Assert.True(await _bookings.MarkAsProcessedAsync(booking.Id, BookingStatus.Confirmed));
 
         // Act
