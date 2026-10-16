@@ -23,6 +23,7 @@ public sealed class UserService(IUserRepository users, IPasswordHasher hasher,
         await unitOfWork.SaveChangesAsync(cancellationToken);
     }
 
+    /// <inheritdoc />
     public async Task<TokenInfo> LoginAsync(LoginUser request, CancellationToken cancellationToken = default)
     {
         var user = string.IsNullOrWhiteSpace(request.Login)

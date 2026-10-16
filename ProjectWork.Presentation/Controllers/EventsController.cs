@@ -1,5 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Authorization;
 using ProjectWork.Application.DTO;
 using ProjectWork.Application.Services;
 using ProjectWork.Application.Common;
@@ -72,6 +73,7 @@ namespace ProjectWork.Presentation.Controllers
         /// <returns></returns>
         /// <response code="201">Успешно создает новое событие и возвращает его с сгенерированным ID</response>
         /// <response code="400">Некорректные данные события</response>
+        [Authorize(Roles = "Admin")]
         [HttpPost]
         [ProducesResponseType(typeof(EventInfo), StatusCodes.Status201Created)]
         [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
@@ -91,6 +93,7 @@ namespace ProjectWork.Presentation.Controllers
         /// <response code="204">Успешно обновляет событие с указанным ID</response>
         /// <response code="400">Некорректные данные или мест меньше, чем уже занято</response>
         /// <response code ="404">Событие с указанным ID не найдено</response>
+        [Authorize(Roles = "Admin")]
         [HttpPut("{id:guid}")]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
         [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
@@ -110,6 +113,7 @@ namespace ProjectWork.Presentation.Controllers
         /// <returns></returns>
         /// <response code="204">Успешно удаляет событие с указанным ID</response>
         /// <response code="404">Событие с указанным ID не найдено</response>
+        [Authorize(Roles = "Admin")]
         [HttpDelete("{id:guid}")]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
         [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
