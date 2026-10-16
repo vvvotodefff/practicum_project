@@ -22,7 +22,11 @@ public class InfrastructureRegistrationTests
     private static IConfiguration Configuration(string? connectionString = ConnectionString) =>
         new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
         {
-            ["ConnectionStrings:DefaultConnection"] = connectionString
+            ["ConnectionStrings:DefaultConnection"] = connectionString,
+            ["Jwt:Secret"] = "Test-Only-Signing-Key-At-Least-32-Bytes",
+            ["Jwt:Issuer"] = "TestIssuer",
+            ["Jwt:Audience"] = "TestAudience",
+            ["Jwt:LifetimeMinutes"] = "60"
         }).Build();
 
     private static ServiceProvider BuildProvider(IServiceCollection services) =>
