@@ -14,6 +14,9 @@ public interface IBookingRepository
     /// <summary>Получить отслеживаемую бронь, перечитав её актуальное состояние из базы.</summary>
     Task<Booking?> GetByIdForUpdateAsync(Guid id, CancellationToken cancellationToken = default);
 
+    /// <summary>Посчитать Pending и Confirmed брони пользователя в базе.</summary>
+    Task<int> CountActiveByUserAsync(Guid userId, CancellationToken cancellationToken = default);
+
     /// <summary>Получить только идентификаторы броней с указанным статусом.</summary>
     Task<List<Guid>> GetIdsByStatusAsync(BookingStatus status, CancellationToken cancellationToken = default);
 

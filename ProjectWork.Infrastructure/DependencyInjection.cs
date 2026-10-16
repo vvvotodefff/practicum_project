@@ -24,6 +24,7 @@ public static class DependencyInjection
         // Контекст и миграции находятся в одной сборке Infrastructure.
         services.AddSecurityServices(configuration);
         services.AddDbContext<AppDbContext>(options => options.UseNpgsql(connectionString));
+        services.AddScoped<IUserRepository, UserRepository>();
         services.AddScoped<IUnitOfWork, UnitOfWork>();
         services.AddScoped<IEventRepository, EventRepository>();
         services.AddScoped<IBookingRepository, BookingRepository>();

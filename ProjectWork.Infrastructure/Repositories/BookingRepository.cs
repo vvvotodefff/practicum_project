@@ -33,6 +33,11 @@ public sealed class BookingRepository(AppDbContext context) : IBookingRepository
     }
 
     /// <inheritdoc />
+    public Task<int> CountActiveByUserAsync(Guid userId, CancellationToken cancellationToken = default) =>
+        context.Bookings.CountAsync(b => b.UserId == userId &&
+            (b.Status == BookingStatus.Pending || b.Status == BookingStatus.Confirmed), cancellationToken);
+
+    /// <inheritdoc />
     public Task<List<Guid>> GetIdsByStatusAsync(BookingStatus status,
         CancellationToken cancellationToken = default) =>
         context.Bookings.Where(b => b.Status == status)

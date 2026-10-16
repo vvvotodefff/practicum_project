@@ -22,6 +22,9 @@ public class User
         if (string.IsNullOrWhiteSpace(login))
             throw new DomainValidationException("Логин обязателен.");
 
+        if (login.Trim().Length > 200)
+            throw new DomainValidationException("Логин не должен превышать 200 символов.");
+
         if (string.IsNullOrWhiteSpace(passwordHash))
             throw new DomainValidationException("Хеш пароля обязателен.");
 
