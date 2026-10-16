@@ -23,7 +23,7 @@ public sealed class MigrationTests(PostgresFixture fixture) : DatabaseTest(fixtu
         var applied = await Context.Database.GetAppliedMigrationsAsync();
 
         // Assert
-        Assert.Equal(new[] { "__EFMigrationsHistory", "bookings", "events" },
+        Assert.Equal(new[] { "__EFMigrationsHistory", "bookings", "events", "users" },
             tables.Order(StringComparer.Ordinal));
         Assert.Contains("20261006154025_InitialCreate", applied);
         Assert.Empty(await Context.Database.GetPendingMigrationsAsync());
@@ -55,7 +55,7 @@ public sealed class MigrationTests(PostgresFixture fixture) : DatabaseTest(fixtu
 
     [Theory]
     [InlineData("events", new string[] { "id", "title", "start_at", "end_at", "total_seats", "available_seats" })]
-    [InlineData("bookings", new string[] { "id", "event_id", "status", "created_at" })]
+    [InlineData("bookings", new string[] { "id", "event_id", "user_id", "status", "created_at" })]
     public async Task Migration_ConfiguresRequiredColumns(string tableName, string[] expectedColumns)
     {
         // Act
@@ -81,7 +81,7 @@ public sealed class MigrationTests(PostgresFixture fixture) : DatabaseTest(fixtu
         var definition = await Context.Database.SqlQueryRaw<string>("""
             SELECT pg_get_constraintdef(oid) AS "Value"
             FROM pg_constraint
-            WHERE conrelid = 'bookings'::regclass AND contype = 'f'
+            WHERE conrelid = 'bookings'::regclass AND conname = 'FK_bookings_events_event_id'
             """).SingleAsync();
         Assert.Equal("FOREIGN KEY (event_id) REFERENCES events(id) ON DELETE CASCADE", definition);
 
@@ -110,6 +110,7 @@ public sealed class MigrationTests(PostgresFixture fixture) : DatabaseTest(fixtu
     [InlineData(BookingStatus.Pending)]
     [InlineData(BookingStatus.Confirmed)]
     [InlineData(BookingStatus.Rejected)]
+    [InlineData(BookingStatus.Cancelled)]
     public async Task Migration_StoresBookingStatusAsString(BookingStatus status)
     {
         // Arrange
@@ -198,7 +199,7 @@ public sealed class MigrationTests(PostgresFixture fixture) : DatabaseTest(fixtu
         await Context.SaveChangesAsync();
         Context.ChangeTracker.Clear();
         var duplicate = NewBooking(eventItem.Id);
-        duplicate.Id = existing.Id;
+        Context.Entry(duplicate).Property(b => b.Id).CurrentValue = existing.Id;
 
         // Act / Assert
         await AssertPostgresErrorAsync(async () =>

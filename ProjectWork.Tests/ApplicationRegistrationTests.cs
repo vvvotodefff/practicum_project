@@ -13,7 +13,7 @@ public class ApplicationRegistrationTests
 
         Assert.Same(services, services.AddApplicationServices());
 
-        Assert.Equal(2, services.Count);
+        Assert.Equal(3, services.Count);
         var events = Assert.Single(services, descriptor => descriptor.ServiceType == typeof(IEventService));
         Assert.Equal(typeof(EventService), events.ImplementationType);
         Assert.Equal(ServiceLifetime.Scoped, events.Lifetime);

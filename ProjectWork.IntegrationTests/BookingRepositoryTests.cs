@@ -265,7 +265,7 @@ public sealed class BookingRepositoryTests(PostgresFixture fixture) : DatabaseTe
         var trackedBooking = await Bookings.GetByIdForUpdateAsync(booking.Id);
         trackedEvent!.ReleaseSeats();
         trackedBooking!.Reject();
-        trackedBooking.EventId = Guid.NewGuid();
+        Context.Entry(trackedBooking).Property(b => b.EventId).CurrentValue = Guid.NewGuid();
 
         // Act / Assert
         await AssertPostgresErrorAsync(async () =>

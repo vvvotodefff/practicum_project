@@ -6,6 +6,7 @@ using ProjectWork.Application.Abstractions.Repositories;
 using ProjectWork.Infrastructure.BackgroundServices;
 using ProjectWork.Infrastructure.Persistence;
 using ProjectWork.Infrastructure.Repositories;
+using ProjectWork.Infrastructure.Security;
 
 namespace ProjectWork.Infrastructure;
 
@@ -21,7 +22,9 @@ public static class DependencyInjection
             throw new InvalidOperationException("Не задана строка подключения DefaultConnection.");
 
         // Контекст и миграции находятся в одной сборке Infrastructure.
+        services.AddSecurityServices(configuration);
         services.AddDbContext<AppDbContext>(options => options.UseNpgsql(connectionString));
+        services.AddScoped<IUserRepository, UserRepository>();
         services.AddScoped<IUnitOfWork, UnitOfWork>();
         services.AddScoped<IEventRepository, EventRepository>();
         services.AddScoped<IBookingRepository, BookingRepository>();

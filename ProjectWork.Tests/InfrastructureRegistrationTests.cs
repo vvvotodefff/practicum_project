@@ -22,7 +22,11 @@ public class InfrastructureRegistrationTests
     private static IConfiguration Configuration(string? connectionString = ConnectionString) =>
         new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
         {
-            ["ConnectionStrings:DefaultConnection"] = connectionString
+            ["ConnectionStrings:DefaultConnection"] = connectionString,
+            ["Jwt:Secret"] = "Test-Only-Signing-Key-At-Least-32-Bytes",
+            ["Jwt:Issuer"] = "TestIssuer",
+            ["Jwt:Audience"] = "TestAudience",
+            ["Jwt:LifetimeMinutes"] = "60"
         }).Build();
 
     private static ServiceProvider BuildProvider(IServiceCollection services) =>
@@ -76,7 +80,8 @@ public class InfrastructureRegistrationTests
         Assert.Equal("Npgsql.EntityFrameworkCore.PostgreSQL", context.Database.ProviderName);
         Assert.Equal(ConnectionString, context.Database.GetConnectionString());
         Assert.Equal(typeof(AppDbContext).Assembly, context.GetService<IMigrationsAssembly>().Assembly);
-        Assert.Equal("20261006154025_InitialCreate", Assert.Single(context.Database.GetMigrations()));
+        Assert.Equal(2, context.Database.GetMigrations().Count());
+        Assert.Contains("20261006154025_InitialCreate", context.Database.GetMigrations());
         Assert.False(context.Database.HasPendingModelChanges());
     }
 

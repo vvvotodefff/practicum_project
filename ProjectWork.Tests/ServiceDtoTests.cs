@@ -23,7 +23,7 @@ public class ServiceDtoTests
         });
 
         created.Title = "Client changed DTO";
-        var booking = await bookings.CreateBookingAsync(created.Id);
+        var booking = await bookings.CreateBookingAsync(created.Id, database.UserId);
         Assert.True(await bookings.MarkAsProcessedAsync(booking.Id, BookingStatus.Confirmed));
 
         var found = await events.GetEventByIdAsync(created.Id);
@@ -32,7 +32,7 @@ public class ServiceDtoTests
         Assert.Equal(2, found.AvailableSeats);
         Assert.Equal(3, created.AvailableSeats);
         Assert.Equal(BookingStatus.Pending, booking.Status);
-        Assert.Equal(BookingStatus.Confirmed, (await bookings.GetBookingByIdAsync(booking.Id))!.Status);
+        Assert.Equal(BookingStatus.Confirmed, (await bookings.GetBookingByIdAsync(booking.Id, database.UserId, UserRole.User))!.Status);
 
         var page = await events.GetEventsAsync(null, null, null, 1, 10);
         Assert.Equal(found.Id, Assert.Single(page.Items).Id);

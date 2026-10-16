@@ -39,6 +39,9 @@ namespace ProjectWork.Presentation.Middleware
         {
             var (statusCode, title) = exception switch
             {
+                ForbiddenOperationException => (StatusCodes.Status403Forbidden, "Нет прав"),
+                EventAlreadyStartedException => (StatusCodes.Status400BadRequest, "Событие уже началось"),
+                ActiveBookingLimitExceededException => (StatusCodes.Status409Conflict, "Лимит бронирований"),
                 NotFoundException => (StatusCodes.Status404NotFound, "Ресурс не найден"),
                 NoAvailableSeatsException => (StatusCodes.Status409Conflict, "Нет свободных мест"),
                 DomainValidationException => (StatusCodes.Status400BadRequest, "Ошибка валидации"),

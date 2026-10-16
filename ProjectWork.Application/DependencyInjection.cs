@@ -9,6 +9,7 @@ public static class DependencyInjection
     /// <summary>Добавить scoped-сервисы событий и бронирований.</summary>
     public static IServiceCollection AddApplicationServices(this IServiceCollection services)
     {
+        services.AddScoped<IUserService, UserService>();
         services.AddScoped<IEventService, EventService>();
         services.AddScoped<IBookingService, BookingService>();
         return services;

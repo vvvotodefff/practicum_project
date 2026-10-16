@@ -11,6 +11,9 @@ public class BookingInfo
     /// <summary>Идентификатор события.</summary>
     public Guid EventId { get; set; }
 
+    /// <summary>Идентификатор владельца брони.</summary>
+    public Guid UserId { get; set; }
+
     /// <summary>Текущий статус брони.</summary>
     public BookingStatus Status { get; set; }
 
@@ -25,6 +28,7 @@ public class BookingInfo
     {
         Id = booking.Id,
         EventId = booking.EventId,
+        UserId = booking.UserId,
         Status = booking.Status,
         CreatedAt = booking.CreatedAt,
         ProcessedAt = booking.ProcessedAt

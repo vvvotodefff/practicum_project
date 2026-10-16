@@ -35,7 +35,7 @@ public class PersistenceTests : IDisposable
         using (var scope = _database.CreateScope())
         {
             bookingId = (await scope.ServiceProvider.GetRequiredService<IBookingService>()
-                .CreateBookingAsync(id)).Id;
+                .CreateBookingAsync(id, _database.UserId)).Id;
         }
         using var readScope = _database.CreateScope();
         var context = readScope.ServiceProvider.GetRequiredService<AppDbContext>();
@@ -64,7 +64,7 @@ public class PersistenceTests : IDisposable
     {
         var id = await CreateEventAsync();
         using (var scope = _database.CreateScope())
-            await scope.ServiceProvider.GetRequiredService<IBookingService>().CreateBookingAsync(id);
+            await scope.ServiceProvider.GetRequiredService<IBookingService>().CreateBookingAsync(id, _database.UserId);
         using (var scope = _database.CreateScope())
             Assert.True(await scope.ServiceProvider.GetRequiredService<IEventService>().DeleteEventAsync(id));
         using var readScope = _database.CreateScope();
@@ -79,7 +79,7 @@ public class PersistenceTests : IDisposable
         var id = await CreateEventAsync(2);
         Guid bookingId;
         using (var scope = _database.CreateScope())
-            bookingId = (await scope.ServiceProvider.GetRequiredService<IBookingService>().CreateBookingAsync(id)).Id;
+            bookingId = (await scope.ServiceProvider.GetRequiredService<IBookingService>().CreateBookingAsync(id, _database.UserId)).Id;
         var results = await Task.WhenAll(Enumerable.Range(0, 10).Select(_ => Task.Run(async () =>
         {
             using var scope = _database.CreateScope();
@@ -101,7 +101,7 @@ public class PersistenceTests : IDisposable
         var service = scope.ServiceProvider.GetRequiredService<IEventService>();
         await service.TryReserveSeatsAsync(id);
         using (var other = _database.CreateScope())
-            await other.ServiceProvider.GetRequiredService<IBookingService>().CreateBookingAsync(id);
+            await other.ServiceProvider.GetRequiredService<IBookingService>().CreateBookingAsync(id, _database.UserId);
         await service.UpdateEventAsync(id, new UpdateEvent
         {
             Title = "Updated", TotalSeats = 5,
@@ -118,7 +118,7 @@ public class PersistenceTests : IDisposable
         using (var scope = _database.CreateScope())
         {
             var service = scope.ServiceProvider.GetRequiredService<IBookingService>();
-            for (var i = 0; i < 12; i++) await service.CreateBookingAsync(id);
+            for (var i = 0; i < 10; i++) await service.CreateBookingAsync(id, _database.UserId);
         }
         using var worker = new BookingProcessingService(
             _database.Provider.GetRequiredService<IServiceScopeFactory>(),
@@ -134,7 +134,7 @@ public class PersistenceTests : IDisposable
                 var bookings = await context.Bookings.AsNoTracking().ToListAsync(timeout.Token);
                 if (bookings.All(b => b.Status == BookingStatus.Confirmed))
                 {
-                    Assert.Equal(12, bookings.Count);
+                    Assert.Equal(10, bookings.Count);
                     Assert.All(bookings, b => Assert.NotNull(b.ProcessedAt));
                     break;
                 }
@@ -152,7 +152,7 @@ public class PersistenceTests : IDisposable
         var id = await CreateEventAsync(1);
         using var scope = _database.CreateScope();
         var service = scope.ServiceProvider.GetRequiredService<IBookingService>();
-        var booking = await service.CreateBookingAsync(id);
+        var booking = await service.CreateBookingAsync(id, _database.UserId);
         Assert.True(await service.MarkAsProcessedAsync(booking.Id, finalStatus));
         Assert.False(await service.MarkAsProcessedAsync(booking.Id, BookingStatus.Rejected));
         var expectedSeats = finalStatus == BookingStatus.Rejected ? 1 : 0;

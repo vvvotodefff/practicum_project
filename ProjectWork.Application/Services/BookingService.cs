@@ -10,18 +10,25 @@ namespace ProjectWork.Application.Services;
 /// <param name="eventRepository">Доступ к событиям в текущем scope.</param>
 /// <param name="bookingRepository">Доступ к бронированиям в том же scope.</param>
 /// <param name="unitOfWork">Атомарное сохранение брони и изменения мест.</param>
-public class BookingService(IEventRepository eventRepository, IBookingRepository bookingRepository, IUnitOfWork unitOfWork) : IBookingService
+/// <param name="userRepository">Проверка существования владельца.</param>
+/// <param name="timeProvider">Текущее время для проверки начала события.</param>
+public class BookingService(IEventRepository eventRepository, IBookingRepository bookingRepository,
+    IUnitOfWork unitOfWork, IUserRepository userRepository, TimeProvider timeProvider) : IBookingService
 {
+    /// <summary>Лимит активных (Pending и Confirmed) броней одного пользователя.</summary>
+    public const int MaxActiveBookings = 10;
+
     /// <inheritdoc />
     public async Task<List<BookingInfo>> GetBookingsAsync(CancellationToken cancellationToken = default) =>
         (await bookingRepository.GetAllAsync(cancellationToken: cancellationToken))
             .Select(BookingInfo.FromBooking).ToList();
 
     /// <inheritdoc />
-    public async Task<BookingInfo?> GetBookingByIdAsync(Guid bookingId, CancellationToken cancellationToken = default)
+    public async Task<BookingInfo?> GetBookingByIdAsync(Guid bookingId, Guid userId, UserRole role, CancellationToken cancellationToken = default)
     {
         var booking = await bookingRepository.GetByIdAsync(bookingId, cancellationToken);
-        return booking is null ? null : BookingInfo.FromBooking(booking);
+        return booking is null || (booking.UserId != userId && role != UserRole.Admin)
+            ? null : BookingInfo.FromBooking(booking);
     }
 
     /// <inheritdoc />
@@ -30,21 +37,50 @@ public class BookingService(IEventRepository eventRepository, IBookingRepository
             .Select(BookingInfo.FromBooking).ToList();
 
     /// <inheritdoc />
-    public async Task<BookingInfo> CreateBookingAsync(Guid eventId, CancellationToken cancellationToken = default)
+    public async Task<BookingInfo> CreateBookingAsync(Guid eventId, Guid userId, CancellationToken cancellationToken = default)
     {
         await EventWriteLock.Gate.WaitAsync(cancellationToken);
         try
         {
             var eventItem = await eventRepository.GetByIdForUpdateAsync(eventId, cancellationToken)
                 ?? throw new NotFoundException($"Событие с идентификатором '{eventId}' не найдено.");
+            if (eventItem.StartAt <= timeProvider.GetUtcNow().UtcDateTime)
+                throw new EventAlreadyStartedException("Нельзя забронировать событие, которое уже началось.");
+            if (await userRepository.GetByIdAsync(userId, cancellationToken) is null)
+                throw new NotFoundException("Пользователь не найден.");
+            if (await bookingRepository.CountActiveByUserAsync(userId, cancellationToken) >= MaxActiveBookings)
+                throw new ActiveBookingLimitExceededException($"Лимит активных бронирований: {MaxActiveBookings}.");
             if (!eventItem.TryReserveSeats())
                 throw new NoAvailableSeatsException("No available seats for this event");
 
-            var booking = Booking.Create(eventId);
+            var booking = Booking.Create(eventId, userId);
             // Одна единица работы сохраняет бронь и уменьшение мест атомарно.
             await bookingRepository.AddAsync(booking, cancellationToken);
             await unitOfWork.SaveChangesAsync(cancellationToken);
             return BookingInfo.FromBooking(booking);
+        }
+        finally { EventWriteLock.Gate.Release(); }
+    }
+
+    /// <inheritdoc />
+    public async Task CancelBookingAsync(Guid bookingId, Guid userId, UserRole role,
+        CancellationToken cancellationToken = default)
+    {
+        await EventWriteLock.Gate.WaitAsync(cancellationToken);
+        try
+        {
+            var booking = await bookingRepository.GetByIdForUpdateAsync(bookingId, cancellationToken)
+                ?? throw new NotFoundException("Бронь не найдена.");
+            // Права проверяются до изменения статуса, даже при повторной отмене.
+            if (booking.UserId != userId && role != UserRole.Admin)
+                throw new ForbiddenOperationException("Можно отменить только свою бронь.");
+
+            if (!booking.Cancel()) return;
+            var eventItem = await eventRepository.GetByIdForUpdateAsync(booking.EventId, cancellationToken)
+                ?? throw new NotFoundException("Событие не найдено.");
+            eventItem.ReleaseSeats();
+            await bookingRepository.UpdateAsync(booking, cancellationToken);
+            await unitOfWork.SaveChangesAsync(cancellationToken);
         }
         finally { EventWriteLock.Gate.Release(); }
     }

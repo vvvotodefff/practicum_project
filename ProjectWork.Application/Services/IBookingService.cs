@@ -14,10 +14,14 @@ public interface IBookingService
     /// статус <see cref="BookingStatus.Pending"/> и текущее время создания.
     /// Бронь и уменьшение свободных мест сохраняются вместе.
     /// </summary>
-    Task<BookingInfo> CreateBookingAsync(Guid eventId, CancellationToken cancellationToken = default);
+    Task<BookingInfo> CreateBookingAsync(Guid eventId, Guid userId, CancellationToken cancellationToken = default);
 
-    /// <summary>Получить бронь по идентификатору или null, если она не найдена.</summary>
-    Task<BookingInfo?> GetBookingByIdAsync(Guid bookingId, CancellationToken cancellationToken = default);
+    /// <summary>Получить свою бронь, либо любую для Admin; чужая и отсутствующая бронь дают null.</summary>
+    Task<BookingInfo?> GetBookingByIdAsync(Guid bookingId, Guid userId, UserRole role, CancellationToken cancellationToken = default);
+
+    /// <summary>Отменить свою бронь, либо любую бронь для администратора.</summary>
+    Task CancelBookingAsync(Guid bookingId, Guid userId, UserRole role,
+        CancellationToken cancellationToken = default);
 
     /// <summary>Получить брони, ожидающие обработки (статус <see cref="BookingStatus.Pending"/>).</summary>
     Task<List<BookingInfo>> GetPendingBookingsAsync(CancellationToken cancellationToken = default);
