@@ -14,6 +14,8 @@ $docker = if ($dockerCommand) { $dockerCommand.Source } else {
     Join-Path $env:LOCALAPPDATA 'Programs/DockerDesktop/resources/bin/docker.exe'
 }
 $previousConnection = $env:ConnectionStrings__DefaultConnection
+$previousJwtSecret = $env:Jwt__Secret
+$env:Jwt__Secret = [Convert]::ToBase64String([System.Security.Cryptography.RandomNumberGenerator]::GetBytes(32))
 $startAt = [DateTime]::UtcNow.AddDays(30).ToString('yyyy-MM-ddTHH:mm:ssZ')
 $endAt = [DateTime]::UtcNow.AddDays(30).AddHours(1).ToString('yyyy-MM-ddTHH:mm:ssZ')
 $logBase = Join-Path ([System.IO.Path]::GetTempPath()) ("eventapi-check-" + [guid]::NewGuid())
@@ -218,6 +220,7 @@ try {
     Assert-Check ($limited.Code -eq 409 -and $limited.Json.detail -match '10') 'User limit must return 409 and mention 10'
     Assert-Check ((Request POST "/events/$($limitEvent.id)/book" $null $otherToken).Code -eq 202) 'Different users must have independent limits'
     $bookingId = $userBookings[0].id
+    Assert-Check ((Request GET "/bookings/$bookingId" $null $otherToken).Code -eq 404) 'Foreign booking must return 404'
     Assert-Check ((Request DELETE "/bookings/$bookingId" $null $otherToken).Code -eq 403) 'Foreign cancellation must return 403'
     Assert-Check ((Request DELETE "/bookings/$bookingId" $null $userToken).Code -eq 204) 'Owner cancellation failed'
     Assert-Check ((Request DELETE "/bookings/$bookingId" $null $userToken).Code -eq 204) 'Repeated cancellation failed'
@@ -256,6 +259,7 @@ finally {
     }
     Stop-Api
     $env:ConnectionStrings__DefaultConnection = $previousConnection
+    $env:Jwt__Secret = $previousJwtSecret
     if ($script:dockerContainerStarted) {
         & $docker rm --force $containerName | Out-Null
     }

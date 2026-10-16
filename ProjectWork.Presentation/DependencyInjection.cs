@@ -6,6 +6,7 @@ using Microsoft.OpenApi;
 using ProjectWork.Domain.Entities;
 using ProjectWork.Infrastructure.Security;
 using ProjectWork.Application.DTO;
+using ProjectWork.Presentation.Swagger;
 
 namespace ProjectWork.Presentation;
 
@@ -55,10 +56,7 @@ public static class DependencyInjection
                 Type = SecuritySchemeType.Http, Scheme = "bearer", BearerFormat = "JWT",
                 Description = "Вставьте JWT из ответа POST /auth/login без префикса Bearer."
             });
-            options.AddSecurityRequirement(document => new OpenApiSecurityRequirement
-            {
-                [new OpenApiSecuritySchemeReference("bearer", document)] = []
-            });
+            options.OperationFilter<AuthorizeOperationFilter>();
             var apiXmlFilename = $"{typeof(DependencyInjection).Assembly.GetName().Name}.xml";
             options.IncludeXmlComments(Path.Combine(AppContext.BaseDirectory, apiXmlFilename));
             var applicationXmlFilename = $"{typeof(EventInfo).Assembly.GetName().Name}.xml";

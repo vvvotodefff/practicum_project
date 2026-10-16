@@ -53,9 +53,16 @@ public abstract class DatabaseTest(PostgresFixture fixture) : IAsyncLifetime
         var booking = Booking.Create(eventId, UserId);
         // PostgreSQL хранит микросекунды, DateTime — 100 нс. Фиксированные даты
         // позволяют сравнивать сохранённые значения без ошибок округления.
-        booking.CreatedAt = At(1);
-        booking.Status = status;
-        booking.ProcessedAt = status == BookingStatus.Pending ? null : At(1, 11);
+        switch (status)
+        {
+            case BookingStatus.Confirmed: booking.Confirm(); break;
+            case BookingStatus.Rejected: booking.Reject(); break;
+            case BookingStatus.Cancelled: booking.Cancel(); break;
+        }
+        // Только тестовая подготовка значений для проверки точности PostgreSQL.
+        Context.Entry(booking).Property(b => b.CreatedAt).CurrentValue = At(1);
+        Context.Entry(booking).Property(b => b.ProcessedAt).CurrentValue =
+            status == BookingStatus.Pending ? null : At(1, 11);
         return booking;
     }
 

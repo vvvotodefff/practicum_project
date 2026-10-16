@@ -53,6 +53,14 @@ public class Sprint8DomainTests
     }
 
     [Fact]
+    public void Booking_StateCannotBeChangedThroughPublicSetters()
+    {
+        Assert.All(typeof(Booking).GetProperties(), property =>
+            Assert.False(property.SetMethod?.IsPublic ?? false, property.Name));
+        Assert.Empty(typeof(Booking).GetConstructors());
+    }
+
+    [Fact]
     public void BookingCreate_AssignsOwnerAndInitialState()
     {
         var eventId = Guid.NewGuid();

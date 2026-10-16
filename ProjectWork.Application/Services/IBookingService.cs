@@ -16,8 +16,8 @@ public interface IBookingService
     /// </summary>
     Task<BookingInfo> CreateBookingAsync(Guid eventId, Guid userId, CancellationToken cancellationToken = default);
 
-    /// <summary>Получить бронь по идентификатору или null, если она не найдена.</summary>
-    Task<BookingInfo?> GetBookingByIdAsync(Guid bookingId, CancellationToken cancellationToken = default);
+    /// <summary>Получить свою бронь, либо любую для Admin; чужая и отсутствующая бронь дают null.</summary>
+    Task<BookingInfo?> GetBookingByIdAsync(Guid bookingId, Guid userId, UserRole role, CancellationToken cancellationToken = default);
 
     /// <summary>Отменить свою бронь, либо любую бронь для администратора.</summary>
     Task CancelBookingAsync(Guid bookingId, Guid userId, UserRole role,

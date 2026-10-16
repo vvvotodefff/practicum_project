@@ -24,10 +24,11 @@ public class BookingService(IEventRepository eventRepository, IBookingRepository
             .Select(BookingInfo.FromBooking).ToList();
 
     /// <inheritdoc />
-    public async Task<BookingInfo?> GetBookingByIdAsync(Guid bookingId, CancellationToken cancellationToken = default)
+    public async Task<BookingInfo?> GetBookingByIdAsync(Guid bookingId, Guid userId, UserRole role, CancellationToken cancellationToken = default)
     {
         var booking = await bookingRepository.GetByIdAsync(bookingId, cancellationToken);
-        return booking is null ? null : BookingInfo.FromBooking(booking);
+        return booking is null || (booking.UserId != userId && role != UserRole.Admin)
+            ? null : BookingInfo.FromBooking(booking);
     }
 
     /// <inheritdoc />

@@ -88,7 +88,7 @@ public class Sprint8ServiceTests : IDisposable
         var role = administrator ? UserRole.Admin : UserRole.User;
         await _bookings.CancelBookingAsync(booking.Id, actor, role);
         await _bookings.CancelBookingAsync(booking.Id, actor, role);
-        Assert.Equal(BookingStatus.Cancelled, (await _bookings.GetBookingByIdAsync(booking.Id))!.Status);
+        Assert.Equal(BookingStatus.Cancelled, (await _bookings.GetBookingByIdAsync(booking.Id, _database.UserId, UserRole.User))!.Status);
         Assert.Equal(50, (await _events.GetEventByIdAsync(ev.Id))!.AvailableSeats);
         Assert.False(await _bookings.MarkAsProcessedAsync(booking.Id, BookingStatus.Confirmed));
     }
@@ -100,7 +100,7 @@ public class Sprint8ServiceTests : IDisposable
         var booking = await _bookings.CreateBookingAsync(ev.Id, _database.UserId);
         await Assert.ThrowsAsync<ForbiddenOperationException>(() =>
             _bookings.CancelBookingAsync(booking.Id, _database.OtherUserId, UserRole.User));
-        Assert.Equal(BookingStatus.Pending, (await _bookings.GetBookingByIdAsync(booking.Id))!.Status);
+        Assert.Equal(BookingStatus.Pending, (await _bookings.GetBookingByIdAsync(booking.Id, _database.UserId, UserRole.User))!.Status);
         Assert.Equal(49, (await _events.GetEventByIdAsync(ev.Id))!.AvailableSeats);
     }
 
@@ -166,6 +166,19 @@ public class Sprint8ServiceTests : IDisposable
         Assert.True(new Sha256PasswordHasher().Verify("secret-password", saved.PasswordHash));
         Assert.Equal(UserRole.Admin, saved.Role);
         Assert.Equal(3, (await _users.LoginAsync(new LoginUser { Login = "admin", Password = "secret-password" })).Token.Split('.').Length);
+    }
+
+    [Theory]
+    [InlineData(UserRole.User, false)]
+    [InlineData(UserRole.Admin, true)]
+    public async Task ReadBooking_OtherUser_CanReadOnlyAsAdmin(UserRole role, bool allowed)
+    {
+        var ev = await EventAsync();
+        var booking = await _bookings.CreateBookingAsync(ev.Id, _database.UserId);
+        var result = await _bookings.GetBookingByIdAsync(booking.Id, _database.OtherUserId, role);
+        Assert.Equal(allowed, result is not null);
+        if (allowed) Assert.Equal(booking.Id, result!.Id);
+        Assert.Null(await _bookings.GetBookingByIdAsync(Guid.NewGuid(), _database.OtherUserId, role));
     }
 
     [Fact]

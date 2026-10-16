@@ -199,7 +199,7 @@ public sealed class MigrationTests(PostgresFixture fixture) : DatabaseTest(fixtu
         await Context.SaveChangesAsync();
         Context.ChangeTracker.Clear();
         var duplicate = NewBooking(eventItem.Id);
-        duplicate.Id = existing.Id;
+        Context.Entry(duplicate).Property(b => b.Id).CurrentValue = existing.Id;
 
         // Act / Assert
         await AssertPostgresErrorAsync(async () =>

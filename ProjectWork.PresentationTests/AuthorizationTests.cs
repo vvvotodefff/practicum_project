@@ -132,6 +132,36 @@ public sealed class AuthorizationTests(HttpApiFixture fixture)
     }
 
     [Fact]
+    public async Task ForeignBooking_ReturnsSame404AsMissing_WhileAdminCanRead()
+    {
+        using var client = fixture.CreateClient();
+        var ev = await CreateEvent(client);
+        var admin = client.DefaultRequestHeaders.Authorization;
+        client.DefaultRequestHeaders.Authorization = new("Bearer", await RegisterAndLogin(client));
+        var created = await client.PostAsync($"/events/{ev.Id}/book", null);
+        Assert.Equal(HttpStatusCode.Accepted, created.StatusCode);
+        var booking = (await created.Content.ReadFromJsonAsync<BookingInfo>(JsonOptions))!;
+        var foreign = new AuthenticationHeaderValue("Bearer", await RegisterAndLogin(client));
+        client.DefaultRequestHeaders.Authorization = foreign;
+        var denied = await client.GetAsync($"/bookings/{booking.Id}");
+        Assert.Equal(HttpStatusCode.NotFound, denied.StatusCode);
+        var deniedBody = await denied.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.False(deniedBody.TryGetProperty("userId", out _));
+
+        client.DefaultRequestHeaders.Authorization = admin;
+        var visible = await client.GetAsync($"/bookings/{booking.Id}");
+        Assert.Equal(HttpStatusCode.OK, visible.StatusCode);
+        Assert.Equal(booking.UserId, (await visible.Content.ReadFromJsonAsync<BookingInfo>(JsonOptions))!.UserId);
+        Assert.Equal(HttpStatusCode.NoContent, (await client.DeleteAsync($"/events/{ev.Id}")).StatusCode);
+        client.DefaultRequestHeaders.Authorization = foreign;
+        var missing = await client.GetAsync($"/bookings/{booking.Id}");
+        Assert.Equal(HttpStatusCode.NotFound, missing.StatusCode);
+        var missingBody = await missing.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal(deniedBody.GetProperty("detail").GetString(), missingBody.GetProperty("detail").GetString());
+        Assert.Equal(deniedBody.GetProperty("title").GetString(), missingBody.GetProperty("title").GetString());
+    }
+
+    [Fact]
     public async Task StartedEvent_Returns400()
     {
         using var client = fixture.CreateClient();
@@ -193,5 +223,24 @@ public sealed class AuthorizationTests(HttpApiFixture fixture)
         Assert.True(paths.TryGetProperty("/auth/login", out _));
         Assert.True(paths.TryGetProperty("/auth/register", out _));
         Assert.True(paths.GetProperty("/bookings/{id}").TryGetProperty("delete", out _));
+        Assert.False(json.TryGetProperty("security", out _));
+        foreach (var (path, method) in new[]
+        {
+            ("/auth/register", "post"), ("/auth/login", "post"),
+            ("/events", "get"), ("/events/{id}", "get")
+        })
+        {
+            var operation = paths.GetProperty(path).GetProperty(method);
+            Assert.True(!operation.TryGetProperty("security", out var security) || security.GetArrayLength() == 0);
+        }
+        foreach (var (path, method) in new[]
+        {
+            ("/events", "post"), ("/events/{id}", "put"), ("/events/{id}", "delete"),
+            ("/events/{id}/book", "post"), ("/bookings/{id}", "get"), ("/bookings/{id}", "delete")
+        })
+        {
+            var security = paths.GetProperty(path).GetProperty(method).GetProperty("security");
+            Assert.True(security[0].TryGetProperty("bearer", out _));
+        }
     }
 }

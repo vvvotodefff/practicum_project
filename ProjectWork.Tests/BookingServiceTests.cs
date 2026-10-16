@@ -88,7 +88,7 @@ public class BookingServiceTests : IDisposable
         var eventItem = await CreateTestEvent();
         var created = await _service.CreateBookingAsync(eventItem.Id, _database.UserId);
 
-        var found = await _service.GetBookingByIdAsync(created.Id);
+        var found = await _service.GetBookingByIdAsync(created.Id, _database.UserId, UserRole.User);
 
         Assert.NotNull(found);
         Assert.Equal(created.Id, found.Id);
@@ -108,7 +108,7 @@ public class BookingServiceTests : IDisposable
         var processed = await _service.MarkAsProcessedAsync(created.Id, status);
 
         Assert.True(processed);
-        var found = await _service.GetBookingByIdAsync(created.Id);
+        var found = await _service.GetBookingByIdAsync(created.Id, _database.UserId, UserRole.User);
         Assert.NotNull(found);
         Assert.Equal(status, found.Status);
         Assert.NotNull(found.ProcessedAt);
@@ -140,7 +140,7 @@ public class BookingServiceTests : IDisposable
         var before = DateTime.UtcNow;
 
         Assert.True(await _service.MarkAsProcessedAsync(booking.Id, BookingStatus.Confirmed));
-        booking = (await _service.GetBookingByIdAsync(booking.Id))!;
+        booking = (await _service.GetBookingByIdAsync(booking.Id, _database.UserId, UserRole.User))!;
 
         Assert.Equal(BookingStatus.Confirmed, booking.Status);
         Assert.NotNull(booking.ProcessedAt);
@@ -154,7 +154,7 @@ public class BookingServiceTests : IDisposable
         var booking = await _service.CreateBookingAsync(eventItem.Id, _database.UserId);
 
         Assert.True(await _service.MarkAsProcessedAsync(booking.Id, BookingStatus.Rejected));
-        booking = (await _service.GetBookingByIdAsync(booking.Id))!;
+        booking = (await _service.GetBookingByIdAsync(booking.Id, _database.UserId, UserRole.User))!;
 
         Assert.Equal(BookingStatus.Rejected, booking.Status);
         Assert.NotNull(booking.ProcessedAt);
@@ -168,7 +168,7 @@ public class BookingServiceTests : IDisposable
         Assert.Equal(2, (await _eventService.GetEventByIdAsync(eventItem.Id))!.AvailableSeats);
 
         await _service.MarkAsProcessedAsync(booking.Id, BookingStatus.Rejected);
-        booking = (await _service.GetBookingByIdAsync(booking.Id))!;
+        booking = (await _service.GetBookingByIdAsync(booking.Id, _database.UserId, UserRole.User))!;
 
         Assert.Equal(BookingStatus.Rejected, booking.Status);
         Assert.Equal(3, (await _eventService.GetEventByIdAsync(eventItem.Id))!.AvailableSeats);
@@ -373,7 +373,7 @@ public class BookingServiceTests : IDisposable
         var eventItem = await CreateTestEvent();
         await _service.CreateBookingAsync(eventItem.Id, _database.UserId);
 
-        var found = await _service.GetBookingByIdAsync(Guid.NewGuid());
+        var found = await _service.GetBookingByIdAsync(Guid.NewGuid(), _database.UserId, UserRole.User);
 
         Assert.Null(found);
     }

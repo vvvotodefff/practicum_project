@@ -45,18 +45,18 @@ namespace ProjectWork.Presentation.Controllers
         }
 
         /// <summary>
-        /// Получить текущее состояние брони по её уникальному идентификатору ID
+        /// Получить свою бронь по ID; администратор может читать любые брони
         /// </summary>
         /// <param name="id">Идентификатор брони</param>
         /// <returns></returns>
         /// <response code="200">Успешно возвращает бронь с указанным ID</response>
-        /// <response code="404">Бронь с указанным ID не найдена</response>
+        /// <response code="404">Бронь не найдена или недоступна текущему пользователю</response>
         [HttpGet("bookings/{id:guid}")]
         [ProducesResponseType(typeof(BookingInfo), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
         public async Task<ActionResult<BookingInfo>> GetBookingById(Guid id)
         {
-            var booking = await _bookingService.GetBookingByIdAsync(id);
+            var booking = await _bookingService.GetBookingByIdAsync(id, CurrentUser.Id(User), CurrentUser.Role(User));
 
             if (booking is null)
                 throw new NotFoundException($"Бронь с идентификатором '{id}' не найдена.");
