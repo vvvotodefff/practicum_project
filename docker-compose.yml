@@ -1,58 +1,158 @@
-# Этап 2: только независимые PostgreSQL. API запускаются локально.
-# Kafka и контейнеры приложений добавляются в следующих этапах.
+# Вся система одной командой: docker compose up -d --build
+# Инфраструктура взята из примера спринта; добавлены порты БД для локального dotnet run
+# и контейнеры трёх сервисов.
+
+# Общие параметры JWT: токен Users проходит проверку в Events и Bookings,
+# только если секрет, издатель и аудитория совпадают.
+x-jwt: &jwt
+  Jwt__Secret: ${JWT_SECRET:-Docker-Development-Only-Secret-Change-Me}
+  Jwt__Issuer: ProjectWork.Api
+  Jwt__Audience: ProjectWork.Client
+
 services:
-  users-db:
-    image: postgres:16-alpine
-    restart: unless-stopped
+  # ─────────────────────────── Инфраструктура обмена сообщениями ───────────────────────────
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.6.1
+    container_name: eventapi-zookeeper
     environment:
-      POSTGRES_USER: users
-      POSTGRES_PASSWORD: users-development
-      POSTGRES_DB: users_db
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z localhost 2181 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  kafka:
+    image: confluentinc/cp-kafka:7.6.1
+    container_name: eventapi-kafka
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    ports:
+      # Внешний listener для подключения с хоста (например, из dotnet run локально).
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      # Два listener'а: INTERNAL — для сервисов внутри сети Docker, EXTERNAL — для хоста.
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_LISTENERS: INTERNAL://0.0.0.0:29092,EXTERNAL://0.0.0.0:9092
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:29092,EXTERNAL://localhost:9092
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-topics --bootstrap-server localhost:29092 --list || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 15
+
+  # ─────────────────────────── Базы данных (по одной на сервис) ───────────────────────────
+  users-db:
+    image: postgres:16
+    container_name: eventapi-users-db
+    environment:
+      POSTGRES_DB: users
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
     ports:
       - "127.0.0.1:5441:5432"
     volumes:
-      - users_pgdata:/var/lib/postgresql/data
+      - users-db-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U users -d users_db"]
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 5s
       timeout: 5s
       retries: 10
 
   events-db:
-    image: postgres:16-alpine
-    restart: unless-stopped
+    image: postgres:16
+    container_name: eventapi-events-db
     environment:
-      POSTGRES_USER: events
-      POSTGRES_PASSWORD: events-development
-      POSTGRES_DB: events_db
+      POSTGRES_DB: events
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
     ports:
       - "127.0.0.1:5442:5432"
     volumes:
-      - events_pgdata:/var/lib/postgresql/data
+      - events-db-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U events -d events_db"]
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 5s
       timeout: 5s
       retries: 10
 
   bookings-db:
-    image: postgres:16-alpine
-    restart: unless-stopped
+    image: postgres:16
+    container_name: eventapi-bookings-db
     environment:
-      POSTGRES_USER: bookings
-      POSTGRES_PASSWORD: bookings-development
-      POSTGRES_DB: bookings_db
+      POSTGRES_DB: bookings
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
     ports:
       - "127.0.0.1:5443:5432"
     volumes:
-      - bookings_pgdata:/var/lib/postgresql/data
+      - bookings-db-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U bookings -d bookings_db"]
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 5s
       timeout: 5s
       retries: 10
 
+  # ─────────────────────────── Сервисы ───────────────────────────
+  # Настройки из appsettings.json переопределяются переменными окружения (Секция__Ключ).
+  users-api:
+    build:
+      context: .
+      dockerfile: Services/Users/Dockerfile
+    container_name: eventapi-users-api
+    depends_on:
+      users-db:
+        condition: service_healthy
+    ports:
+      - "5250:8080"
+    environment:
+      <<: *jwt
+      Jwt__LifetimeMinutes: 60
+      ConnectionStrings__DefaultConnection: Host=users-db;Port=5432;Database=users;Username=postgres;Password=postgres
+
+  events-api:
+    build:
+      context: .
+      dockerfile: Services/Events/Dockerfile
+    container_name: eventapi-events-api
+    depends_on:
+      events-db:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    ports:
+      - "5251:8080"
+    environment:
+      <<: *jwt
+      ConnectionStrings__DefaultConnection: Host=events-db;Port=5432;Database=events;Username=postgres;Password=postgres
+      Kafka__BootstrapServers: kafka:29092
+      Kafka__ConsumerGroup: events-group
+
+  bookings-api:
+    build:
+      context: .
+      dockerfile: Services/Bookings/Dockerfile
+    container_name: eventapi-bookings-api
+    depends_on:
+      bookings-db:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    ports:
+      - "5252:8080"
+    environment:
+      <<: *jwt
+      ConnectionStrings__DefaultConnection: Host=bookings-db;Port=5432;Database=bookings;Username=postgres;Password=postgres
+      Kafka__BootstrapServers: kafka:29092
+
 volumes:
-  users_pgdata:
-  events_pgdata:
-  bookings_pgdata:
+  users-db-data:
+  events-db-data:
+  bookings-db-data:
