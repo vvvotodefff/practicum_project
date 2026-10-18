@@ -15,6 +15,7 @@ using BookingsMarker = ProjectWork.Bookings.Presentation.ApiAssemblyMarker;
 using ProjectWork.Users.Infrastructure.Persistence;
 using ProjectWork.Events.Infrastructure.Persistence;
 using ProjectWork.Bookings.Infrastructure.Persistence;
+using ProjectWork.Bookings.Application.Abstractions.Messaging;
 
 namespace ProjectWork.PresentationTests;
 
@@ -61,6 +62,11 @@ public sealed class HttpApiFixture : IAsyncLifetime
                 {
                     services.RemoveAll<ProjectWork.Users.Infrastructure.Security.JwtOptions>();
                     services.AddSingleton(new ProjectWork.Users.Infrastructure.Security.JwtOptions(Secret, "http-tests", "http-tests", 60));
+                }
+                if (typeof(TEntry) == typeof(BookingsMarker))
+                {
+                    services.RemoveAll<IBookingEventPublisher>();
+                    services.AddSingleton<IBookingEventPublisher, RecordingBookingEventPublisher>();
                 }
                 services.PostConfigure<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme, options =>
                 {

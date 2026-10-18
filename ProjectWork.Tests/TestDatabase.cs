@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Configuration;
+using ProjectWork.Bookings.Application.Abstractions.Messaging;
 
 namespace ProjectWork.Tests;
 
@@ -28,6 +29,8 @@ internal sealed class TestDatabase : IDisposable
         services.AddScoped<ProjectWork.Bookings.Application.Abstractions.IUnitOfWork, ProjectWork.Bookings.Infrastructure.Persistence.UnitOfWork>();
         services.AddScoped<ProjectWork.Bookings.Application.Abstractions.Repositories.IBookingRepository, ProjectWork.Bookings.Infrastructure.Repositories.BookingRepository>();
         ProjectWork.Bookings.Application.DependencyInjection.AddApplicationServices(services);
+        services.AddSingleton<RecordingBookingEventPublisher>();
+        services.AddSingleton<IBookingEventPublisher>(p => p.GetRequiredService<RecordingBookingEventPublisher>());
         ProjectWork.Users.Infrastructure.Security.SecurityRegistration.AddSecurityServices(services,
             new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
             {

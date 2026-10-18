@@ -1,4 +1,6 @@
 using ProjectWork.Bookings.Application.Abstractions;
+using ProjectWork.Bookings.Application.Abstractions.Messaging;
+using ProjectWork.Contracts;
 using ProjectWork.Bookings.Application.Abstractions.Repositories;
 using ProjectWork.Bookings.Application.DTO;
 using ProjectWork.Bookings.Domain.Exceptions;
@@ -7,7 +9,8 @@ using ProjectWork.Bookings.Domain.Entities;
 namespace ProjectWork.Bookings.Application.Services;
 
 /// <summary>Операции с бронями в собственной базе; внешние сущности представлены идентификаторами.</summary>
-public class BookingService(IBookingRepository bookingRepository, IUnitOfWork unitOfWork) : IBookingService
+public class BookingService(IBookingRepository bookingRepository, IUnitOfWork unitOfWork,
+    IBookingEventPublisher eventPublisher) : IBookingService
 {
     /// <summary>Лимит активных (Pending и Confirmed) броней одного пользователя.</summary>
     public const int MaxActiveBookings = 10;
@@ -72,6 +75,7 @@ public class BookingService(IBookingRepository bookingRepository, IUnitOfWork un
         CancellationToken cancellationToken = default)
     {
         if (status is not (BookingStatus.Confirmed or BookingStatus.Rejected)) return false;
+        BookingConfirmed? message = null;
         await BookingWriteLock.Gate.WaitAsync(cancellationToken);
         try
         {
@@ -91,8 +95,17 @@ public class BookingService(IBookingRepository bookingRepository, IUnitOfWork un
 
             await bookingRepository.UpdateAsync(booking, cancellationToken);
             await unitOfWork.SaveChangesAsync(cancellationToken);
-            return true;
+            // Сообщение описывает подтверждение, успешно сохранённое в своей БД.
+            if (status == BookingStatus.Confirmed)
+                message = new BookingConfirmed(booking.Id, booking.EventId, booking.UserId,
+                    SeatsCount: 1, ConfirmedAt: new DateTimeOffset(booking.ProcessedAt!.Value));
         }
         finally { BookingWriteLock.Gate.Release(); }
+
+        // Сеть не удерживает общую блокировку операций с бронями.
+        // Ошибка публикации не отменяет сохранённый Confirmed (Outbox пока не реализован).
+        if (message is not null)
+            await eventPublisher.PublishConfirmedAsync(message, cancellationToken);
+        return true;
     }
 }

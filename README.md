@@ -1,7 +1,7 @@
 # ProjectWork — спринт 9
 
 Учебный REST API на C# / .NET 10 / ASP.NET Core / EF Core / PostgreSQL.
-Выполнены этапы 2–3: монолит разделён на три сервиса, добавлен общий контракт сообщения.
+Выполнены этапы 2–4: три независимых сервиса, общий контракт и публикация BookingConfirmed в Kafka.
 Репозиторий: [practicum_project](https://github.com/vvvotodefff/practicum_project).
 
 ## Сервисы
@@ -85,8 +85,9 @@ dotnet run --project Services/Bookings/ProjectWork.Bookings.Presentation --launc
 При старте каждый сервис применяет только свои миграции. В Visual Studio откройте
 ProjectWork.slnx и назначьте три проекта Presentation запускаемыми проектами.
 
-На этапе 2 compose запускает только три БД. Kafka и запуск API в контейнерах —
-следующие этапы. Остановка БД без удаления данных: `docker compose down`.
+Текущий compose запускает только три БД. Для Bookings нужен отдельно запущенный
+брокер Kafka (см. ниже). Общий compose с Kafka и API будет добавлен на этапе 7.
+Остановка БД без удаления данных: `docker compose down`.
 
 ### Настройки
 
@@ -111,6 +112,40 @@ $env:Jwt__LifetimeMinutes = "60"
 $env:ConnectionStrings__DefaultConnection = "<строка подключения данного сервиса>"
 ```
 
+### Kafka: публикация из Bookings
+
+В Bookings настройка `Kafka:BootstrapServers` по умолчанию равна `localhost:9092`.
+Можно переопределить её перед запуском:
+
+```powershell
+$env:Kafka__BootstrapServers = "localhost:9092"
+```
+
+Для локального запуска можно использовать уже запущенный учебный Kafka-контейнер.
+Адрес в advertised.listeners брокера должен быть доступен приложению.
+Для контейнерного запуска `Kafka__BootstrapServers=kafka:9092` требует общей сети
+и внутреннего listener брокера: localhost из контейнера указывает на сам контейнер.
+
+Подготовьте топик перед ручной проверкой (замените имя контейнера при необходимости):
+
+```powershell
+docker exec kafkademo-skeleton-kafka-1 kafka-topics --bootstrap-server localhost:9092 --create --if-not-exists --topic booking-confirmed --partitions 3 --replication-factor 1
+docker exec -it kafkademo-skeleton-kafka-1 kafka-console-consumer --bootstrap-server localhost:9092 --topic booking-confirmed --from-beginning --property print.key=true
+```
+
+После авторизованного POST /events/{id}/book на Bookings дождитесь фонового подтверждения.
+Consumer должен показать JSON BookingConfirmed с идентификатором новой брони
+и ключом, равным EventId. Старые сообщения тоже выводятся из-за --from-beginning.
+Автоматическое создание топика сервисом Events относится к этапу 5.
+
+Цепочка: BookingProcessingService → BookingService.MarkAsProcessedAsync →
+Confirm → SaveChangesAsync → IBookingEventPublisher → KafkaBookingEventPublisher.
+Публикация выполняется после сохранения БД и освобождения семафора.
+Издатель зарегистрирован как singleton, использует один потокобезопасный producer,
+ожидает ProduceAsync, при остановке выполняет ограниченный Flush и Dispose.
+JSON использует PascalCase; ключ — EventId, SeatsCount — 1, ConfirmedAt — ProcessedAt в UTC.
+Rejected, Cancelled и повторная обработка Confirmed не публикуют подтверждения.
+
 ## API
 
 | Сервис | Метод и маршрут | Доступ / результат |
@@ -129,7 +164,7 @@ $env:ConnectionStrings__DefaultConnection = "<строка подключени�
 Создание брони отправляется **на порт Bookings (5252)**, хотя путь начинается с /events.
 UserId берётся из проверенного JWT. Лимит — 10 активных броней пользователя
 (Pending и Confirmed). Повторная отмена безопасна.
-Фоновый сервис переводит Pending в Confirmed и сохраняет ProcessedAt.
+Фоновый сервис переводит Pending в Confirmed, сохраняет ProcessedAt и публикует BookingConfirmed.
 
 Для ручной проверки зарегистрируйтесь в Users, получите token через /auth/login
 и вставьте его в Authorize в Swagger нужного сервиса (без префикса Bearer).
@@ -144,14 +179,21 @@ Swagger показывает замок только на защищённых �
 
 ## Граница выполненного этапа
 
-После этапа 3 подтверждение и отмена брони пока меняют только bookings_db.
-Количество мест в events_db от этих действий пока не меняется: публикация
-BookingConfirmed и обработка в Events будут реализованы на этапах 4–5.
+После этапа 4 подтверждение сохраняется в bookings_db и публикуется в Kafka.
+Количество мест в events_db пока не меняется: подписчик Events появится на этапе 5.
+Отмена изменяет только бронь; сообщение об отмене пока не предусмотрено.
+
+Сохранение PostgreSQL и публикация Kafka не являются общей транзакцией.
+При сбое после SaveChanges бронь остаётся Confirmed, даже если сообщение не доставлено.
+Повторный проход обработчика выбирает только Pending и не переотправляет Confirmed.
+Ошибка логируется без обещания автоматического повтора; возврат статуса в Pending не выполняется.
+EnableIdempotence защищает внутренние повторы producer, но не устраняет это окно сбоя.
+Для гарантированной повторной отправки нужен Transactional Outbox, не входящий в этап 4.
 
 Bookings не может синхронно проверить существование события, дату его начала или
 оставшиеся места через чужую базу. Сейчас принимается любой непустой EventId.
 Проверка этих фактов требует обмена сообщениями.
-Один будущий BookingConfirmed сам по себе не обеспечивает синхронный отказ при
+Одно сообщение BookingConfirmed само по себе не обеспечивает синхронный отказ при
 переполнении, возврат места при отмене или проверку прошедшего события; для таких
 гарантий потребуется расширение протокола.
 
@@ -193,13 +235,26 @@ dotnet test ProjectWork.slnx --configuration Release --verbosity minimal
 ```
 
 - ProjectWork.Tests: доменные правила, DTO, сервисы, хеширование/JWT,
-  зависимости слоёв и модели трёх InMemory-контекстов.
+  зависимости слоёв, модели трёх InMemory-контекстов, порядок сохранения/публикации,
+  ошибки БД/издателя и отсутствие повторной публикации.
 - ProjectWork.IntegrationTests: репозитории и отдельные миграции на PostgreSQL,
   независимые базы и отсутствие межсервисных FK.
 - ProjectWork.PresentationTests: три HTTP-конвейера, JWT, 401/403/404,
   маршруты, CRUD, отмена, фоновая обработка и Swagger.
+  Обычные HTTP-тесты используют записывающий тестовый издатель.
+  Отдельный KafkaPublicationTests проверяет настоящий HTTP → PostgreSQL →
+  фоновое подтверждение → Kafka: два сообщения с одним EventId имеют один ключ
+  и попадают в один раздел; при получении статус уже сохранён в БД.
 
-Тесты сами создают и удаляют временные контейнеры и базы. Рабочие БД compose не используются.
+Тесты сами создают и удаляют временные контейнеры PostgreSQL и Kafka со случайными
+портами. Рабочие БД compose и брокер localhost:9092 не используются.
+
+Только сквозная проверка Kafka:
+
+```powershell
+dotnet test ProjectWork.PresentationTests --configuration Release --filter Category=Kafka
+```
+
 CI в .github/workflows/ci.yml собирает решение и запускает тесты при push в main/sprint-*
 и PR в main. Для отдельного прогона HTTP-проверок:
 `./scripts/Verify-Api.ps1 -Configuration Release`.

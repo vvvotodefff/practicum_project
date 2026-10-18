@@ -54,17 +54,19 @@ public class BookingProcessingService(
             await using var scope = scopeFactory.CreateAsyncScope();
             var service = scope.ServiceProvider.GetRequiredService<IBookingService>();
             if (await service.MarkAsProcessedAsync(id, BookingStatus.Confirmed, cancellationToken))
-                logger.LogInformation("Бронь {BookingId} подтверждена", id);
+                logger.LogInformation("Бронь {BookingId} подтверждена, сообщение опубликовано", id);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            // Незавершённая бронь остаётся Pending и будет обработана после запуска.
+            logger.LogInformation("Обработка брони {BookingId} прервана при остановке; " +
+                "статус мог быть сохранён до завершения публикации", id);
         }
         catch (Exception ex)
         {
-            // При ошибке БД оставляем Pending для повторной попытки; повреждённый
-            // контекст закрывается вместе со scope и не используется повторно.
-            logger.LogError(ex, "Не удалось обработать бронь {BookingId}; обработка будет повторена", id);
+            // Повторно выбираются только Pending. Для Confirmed повторная отправка
+            // без отдельного хранилища исходящих сообщений не гарантируется.
+            logger.LogError(ex, "Ошибка обработки или публикации брони {BookingId}. " +
+                "Если статус уже Confirmed, автоматическая повторная публикация не предусмотрена", id);
         }
     }
 }
