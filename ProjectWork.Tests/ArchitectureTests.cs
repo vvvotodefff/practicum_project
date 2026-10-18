@@ -35,12 +35,27 @@ public class ArchitectureTests
             {
                 var include = reference.Attribute("Include")!.Value.Replace('\\', '/');
                 var full = Path.GetFullPath(Path.Combine(Path.GetDirectoryName(project)!, include));
+                var contracts = Path.Combine(root, "Shared", "ProjectWork.Contracts", "ProjectWork.Contracts.csproj");
+                if (full == contracts)
+                {
+                    Assert.Contains(service, new[] { "Events", "Bookings" });
+                    Assert.Equal("Application", layer);
+                    continue;
+                }
                 Assert.StartsWith(Path.Combine(root, "Services", service), full);
                 Assert.Contains(Path.GetFileNameWithoutExtension(full).Split('.').Last(), allowed);
             }
             if (layer == "Domain")
                 Assert.Empty(XDocument.Load(project).Descendants("PackageReference"));
         }
+    }
+
+    [Fact]
+    public void SharedContracts_HaveNoProjectOrPackageDependencies()
+    {
+        var project = XDocument.Load(Path.Combine(Root(), "Shared", "ProjectWork.Contracts", "ProjectWork.Contracts.csproj"));
+        Assert.Empty(project.Descendants("ProjectReference"));
+        Assert.Empty(project.Descendants("PackageReference"));
     }
 
     [Fact]

@@ -2,6 +2,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\ProjectWork.Events.Domain\ProjectWork.Events.Domain.csproj" />
+    <ProjectReference Include="../../../Shared/ProjectWork.Contracts/ProjectWork.Contracts.csproj" />
   </ItemGroup>
 
   <ItemGroup>

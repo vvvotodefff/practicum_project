@@ -1,7 +1,7 @@
 # ProjectWork — спринт 9
 
 Учебный REST API на C# / .NET 10 / ASP.NET Core / EF Core / PostgreSQL.
-Выполнен этап 2: монолит разделён на три независимых сервиса.
+Выполнены этапы 2–3: монолит разделён на три сервиса, добавлен общий контракт сообщения.
 Репозиторий: [practicum_project](https://github.com/vvvotodefff/practicum_project).
 
 ## Сервисы
@@ -44,14 +44,18 @@ ProjectWork.slnx
 docker-compose.yml
 ```
 
-Domain не зависит от других слоёв; Application зависит от своего Domain.
+Domain не зависит от других слоёв; Application зависит от своего Domain,
+а в Events и Bookings — также от общей библиотеки Contracts.
 Infrastructure реализует порты Application. Presentation подключает свои Application
 и Infrastructure. Между сервисами нет ProjectReference.
 Application возвращает DTO; сохранение выполняет локальный IUnitOfWork.
 Фоновый обработчик Bookings создаёт scope через IServiceScopeFactory.
 
-Shared/ProjectWork.Contracts выделен под публичные сообщения. Сам контракт
-BookingConfirmed и имя топика относятся к этапу 3 и пока не добавлены.
+Shared/ProjectWork.Contracts содержит неизменяемый BookingConfirmed
+(BookingId, EventId, UserId, SeatsCount, ConfirmedAt) и константу
+KafkaTopics.BookingConfirmed = "booking-confirmed".
+Контракт подключён к Application сервисов Events и Bookings; подробности и JSON —
+в [описании Contracts](Shared/ProjectWork.Contracts/README.md).
 
 ## Запуск
 
@@ -140,9 +144,9 @@ Swagger показывает замок только на защищённых �
 
 ## Граница выполненного этапа
 
-На этапе 2 подтверждение и отмена брони меняют только bookings_db.
+После этапа 3 подтверждение и отмена брони пока меняют только bookings_db.
 Количество мест в events_db от этих действий пока не меняется: публикация
-BookingConfirmed и обработка в Events будут реализованы на этапах 3–5.
+BookingConfirmed и обработка в Events будут реализованы на этапах 4–5.
 
 Bookings не может синхронно проверить существование события, дату его начала или
 оставшиеся места через чужую базу. Сейчас принимается любой непустой EventId.
