@@ -1,9 +1,28 @@
 <Solution>
-  <Project Path="ProjectWork.Application/ProjectWork.Application.csproj" />
-  <Project Path="ProjectWork.Presentation/ProjectWork.Presentation.csproj" />
-  <Project Path="ProjectWork.Domain/ProjectWork.Domain.csproj" />
-  <Project Path="ProjectWork.Infrastructure/ProjectWork.Infrastructure.csproj" />
-  <Project Path="ProjectWork.IntegrationTests/ProjectWork.IntegrationTests.csproj" />
-  <Project Path="ProjectWork.PresentationTests/ProjectWork.PresentationTests.csproj" />
-  <Project Path="ProjectWork.Tests/ProjectWork.Tests.csproj" />
+  <Folder Name="/Services/Users/">
+    <Project Path="Services/Users/ProjectWork.Users.Domain/ProjectWork.Users.Domain.csproj" />
+    <Project Path="Services/Users/ProjectWork.Users.Application/ProjectWork.Users.Application.csproj" />
+    <Project Path="Services/Users/ProjectWork.Users.Infrastructure/ProjectWork.Users.Infrastructure.csproj" />
+    <Project Path="Services/Users/ProjectWork.Users.Presentation/ProjectWork.Users.Presentation.csproj" />
+  </Folder>
+  <Folder Name="/Services/Events/">
+    <Project Path="Services/Events/ProjectWork.Events.Domain/ProjectWork.Events.Domain.csproj" />
+    <Project Path="Services/Events/ProjectWork.Events.Application/ProjectWork.Events.Application.csproj" />
+    <Project Path="Services/Events/ProjectWork.Events.Infrastructure/ProjectWork.Events.Infrastructure.csproj" />
+    <Project Path="Services/Events/ProjectWork.Events.Presentation/ProjectWork.Events.Presentation.csproj" />
+  </Folder>
+  <Folder Name="/Services/Bookings/">
+    <Project Path="Services/Bookings/ProjectWork.Bookings.Domain/ProjectWork.Bookings.Domain.csproj" />
+    <Project Path="Services/Bookings/ProjectWork.Bookings.Application/ProjectWork.Bookings.Application.csproj" />
+    <Project Path="Services/Bookings/ProjectWork.Bookings.Infrastructure/ProjectWork.Bookings.Infrastructure.csproj" />
+    <Project Path="Services/Bookings/ProjectWork.Bookings.Presentation/ProjectWork.Bookings.Presentation.csproj" />
+  </Folder>
+  <Folder Name="/Shared/">
+    <Project Path="Shared/ProjectWork.Contracts/ProjectWork.Contracts.csproj" />
+  </Folder>
+  <Folder Name="/Tests/">
+    <Project Path="ProjectWork.Tests/ProjectWork.Tests.csproj" />
+    <Project Path="ProjectWork.IntegrationTests/ProjectWork.IntegrationTests.csproj" />
+    <Project Path="ProjectWork.PresentationTests/ProjectWork.PresentationTests.csproj" />
+  </Folder>
 </Solution>

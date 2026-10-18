@@ -2,245 +2,198 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
-using System.Text.Json.Serialization;
-using ProjectWork.Application.DTO;
-using ProjectWork.Domain.Entities;
-using ProjectWork.Infrastructure.Security;
+using ProjectWork.Users.Infrastructure.Security;
+using ProjectWork.Users.Domain.Entities;
 
 namespace ProjectWork.PresentationTests;
 
 [Collection("HTTP API")]
-public sealed class AuthorizationTests(HttpApiFixture fixture)
+public class AuthorizationTests(HttpApiFixture fixture)
 {
-    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
+    private async Task<string> LoginAsync(string role = "User")
     {
-        Converters = { new JsonStringEnumConverter() }
-    };
-
-    private sealed class OffsetClock(TimeSpan offset) : TimeProvider
-    {
-        public override DateTimeOffset GetUtcNow() => DateTimeOffset.UtcNow.Add(offset);
-    }
-
-    private static CreateEvent Request(DateTime? start = null, int seats = 30) => new()
-    {
-        Title = "HTTP-" + Guid.NewGuid(), TotalSeats = seats,
-        StartAt = start ?? DateTime.UtcNow.AddDays(30),
-        EndAt = (start ?? DateTime.UtcNow.AddDays(30)).AddHours(1)
-    };
-
-    private async Task<string> RegisterAndLogin(HttpClient client, UserRole role = UserRole.User)
-    {
-        var login = "user-" + Guid.NewGuid();
-        var registered = await client.PostAsJsonAsync("/auth/register",
-            new RegisterUser { Login = login, Password = "password", Role = role });
+        using var users = fixture.Users();
+        var login = "user-" + Guid.NewGuid().ToString("N");
+        var registered = await users.PostAsJsonAsync("/auth/register", new { login, password = "password", role });
         Assert.Equal(HttpStatusCode.NoContent, registered.StatusCode);
-        var loggedIn = await client.PostAsJsonAsync("/auth/login",
-            new LoginUser { Login = login, Password = "password" });
-        Assert.Equal(HttpStatusCode.OK, loggedIn.StatusCode);
-        return (await loggedIn.Content.ReadFromJsonAsync<TokenInfo>())!.Token;
+        var response = await users.PostAsJsonAsync("/auth/login", new { login, password = "password" });
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        return (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("token").GetString()!;
     }
 
-    private async Task<EventInfo> CreateEvent(HttpClient client, DateTime? start = null, int seats = 30)
-    {
-        client.DefaultRequestHeaders.Authorization =
-            new AuthenticationHeaderValue("Bearer", await RegisterAndLogin(client, UserRole.Admin));
-        var response = await client.PostAsJsonAsync("/events", Request(start, seats));
-        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
-        return (await response.Content.ReadFromJsonAsync<EventInfo>())!;
-    }
+    private static void Authorize(HttpClient client, string token) =>
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
 
-    [Theory]
-    [InlineData("POST")]
-    [InlineData("PUT")]
-    [InlineData("DELETE")]
-    public async Task EventWrites_RequireTokenAndAdminRole(string method)
+    private static object NewEvent() => new
     {
-        using var client = fixture.CreateClient();
-        var path = method == "POST" ? "/events" : "/events/" + Guid.NewGuid();
-        async Task<HttpResponseMessage> Send() => await client.SendAsync(new HttpRequestMessage(new HttpMethod(method), path)
-        {
-            Content = JsonContent.Create(Request())
-        });
-        Assert.Equal(HttpStatusCode.Unauthorized, (await Send()).StatusCode);
-        client.DefaultRequestHeaders.Authorization = new("Bearer", await RegisterAndLogin(client));
-        Assert.Equal(HttpStatusCode.Forbidden, (await Send()).StatusCode);
-        client.DefaultRequestHeaders.Authorization = new("Bearer", await RegisterAndLogin(client, UserRole.Admin));
-        Assert.Equal(method == "POST" ? HttpStatusCode.Created : HttpStatusCode.NotFound, (await Send()).StatusCode);
-    }
+        title = "HTTP event", description = "Separated services",
+        startAt = DateTime.UtcNow.AddDays(1), endAt = DateTime.UtcNow.AddDays(1).AddHours(2), totalSeats = 5
+    };
 
-    [Theory]
-    [InlineData("POST", "/events/00000000-0000-0000-0000-000000000001/book")]
-    [InlineData("GET", "/bookings/00000000-0000-0000-0000-000000000001")]
-    [InlineData("DELETE", "/bookings/00000000-0000-0000-0000-000000000001")]
-    public async Task BookingEndpoints_RequireAuthentication(string method, string path)
+    [Fact]
+    public async Task EachApi_ExposesOnlyItsOwnRoutes()
     {
-        using var client = fixture.CreateClient();
-        Assert.Equal(HttpStatusCode.Unauthorized,
-            (await client.SendAsync(new HttpRequestMessage(new HttpMethod(method), path))).StatusCode);
-        client.DefaultRequestHeaders.Authorization = new("Bearer", await RegisterAndLogin(client));
-        Assert.Equal(HttpStatusCode.NotFound,
-            (await client.SendAsync(new HttpRequestMessage(new HttpMethod(method), path))).StatusCode);
-    }
-
-    [Theory]
-    [InlineData("expired")]
-    [InlineData("issuer")]
-    [InlineData("audience")]
-    [InlineData("signature")]
-    [InlineData("malformed")]
-    public async Task InvalidToken_IsRejected(string kind)
-    {
-        using var client = fixture.CreateClient();
-        var token = new JwtTokenGenerator(new JwtOptions(
-            kind == "signature" ? HttpApiFixture.Secret + "wrong" : HttpApiFixture.Secret,
-            kind == "issuer" ? "wrong" : "http-tests",
-            kind == "audience" ? "wrong" : "http-tests", 60),
-            new OffsetClock(kind == "expired" ? TimeSpan.FromHours(-2) : TimeSpan.Zero))
-            .Generate(User.Create("test", "hash"));
-        client.DefaultRequestHeaders.Authorization = new("Bearer", kind == "malformed" ? "invalid.token" : token);
-        Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync("/bookings/" + Guid.NewGuid())).StatusCode);
+        using var users = fixture.Users();
+        using var events = fixture.Events();
+        using var bookings = fixture.Bookings();
+        Assert.Equal(HttpStatusCode.NotFound, (await users.GetAsync("/events")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await events.PostAsJsonAsync("/auth/register", new { })).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await bookings.GetAsync("/events")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await events.GetAsync("/bookings/" + Guid.NewGuid())).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await events.GetAsync("/events")).StatusCode);
     }
 
     [Fact]
-    public async Task OwnerCancels_AdminCancelsForeign_OrdinaryUserCannot()
+    public async Task TokenFromUsers_IsAcceptedByOtherApisAndRolesAreEnforced()
     {
-        using var client = fixture.CreateClient();
-        var ev = await CreateEvent(client);
-        var admin = client.DefaultRequestHeaders.Authorization;
-        var owner = new AuthenticationHeaderValue("Bearer", await RegisterAndLogin(client));
-        client.DefaultRequestHeaders.Authorization = owner;
-        var created = await client.PostAsync($"/events/{ev.Id}/book", null);
-        Assert.Equal(HttpStatusCode.Accepted, created.StatusCode);
+        using var events = fixture.Events();
+        using var bookings = fixture.Bookings();
+        Assert.Equal(HttpStatusCode.Unauthorized, (await events.PostAsJsonAsync("/events", NewEvent())).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await bookings.PostAsync($"/events/{Guid.NewGuid()}/book", null)).StatusCode);
+        var token = await LoginAsync();
+        Authorize(events, token);
+        Authorize(bookings, token);
+        Assert.Equal(HttpStatusCode.Forbidden, (await events.PostAsJsonAsync("/events", NewEvent())).StatusCode);
+        Assert.Equal(HttpStatusCode.Accepted, (await bookings.PostAsync($"/events/{Guid.NewGuid()}/book", null)).StatusCode);
+        Authorize(events, await LoginAsync("Admin"));
+        var created = await events.PostAsJsonAsync("/events", NewEvent());
+        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
         Assert.NotNull(created.Headers.Location);
-        var booking = (await created.Content.ReadFromJsonAsync<BookingInfo>(JsonOptions))!;
-        Assert.NotEqual(Guid.Empty, booking.UserId);
-        var read = await client.GetAsync(created.Headers.Location);
-        Assert.Equal(HttpStatusCode.OK, read.StatusCode);
-        client.DefaultRequestHeaders.Authorization = new("Bearer", await RegisterAndLogin(client));
-        Assert.Equal(HttpStatusCode.Forbidden, (await client.DeleteAsync($"/bookings/{booking.Id}")).StatusCode);
-        client.DefaultRequestHeaders.Authorization = owner;
-        Assert.Equal(HttpStatusCode.NoContent, (await client.DeleteAsync($"/bookings/{booking.Id}")).StatusCode);
-        Assert.Equal(HttpStatusCode.NoContent, (await client.DeleteAsync($"/bookings/{booking.Id}")).StatusCode);
-        Assert.Equal(BookingStatus.Cancelled,
-            (await client.GetFromJsonAsync<BookingInfo>($"/bookings/{booking.Id}", JsonOptions))!.Status);
-        var second = (await (await client.PostAsync($"/events/{ev.Id}/book", null))
-            .Content.ReadFromJsonAsync<BookingInfo>(JsonOptions))!;
-        client.DefaultRequestHeaders.Authorization = admin;
-        Assert.Equal(HttpStatusCode.NoContent, (await client.DeleteAsync($"/bookings/{second.Id}")).StatusCode);
-        Assert.Equal(30, (await client.GetFromJsonAsync<EventInfo>($"/events/{ev.Id}"))!.AvailableSeats);
     }
 
     [Fact]
-    public async Task ForeignBooking_ReturnsSame404AsMissing_WhileAdminCanRead()
+    public async Task Booking_OwnershipAndLifecycleRemainProtected()
     {
-        using var client = fixture.CreateClient();
-        var ev = await CreateEvent(client);
-        var admin = client.DefaultRequestHeaders.Authorization;
-        client.DefaultRequestHeaders.Authorization = new("Bearer", await RegisterAndLogin(client));
-        var created = await client.PostAsync($"/events/{ev.Id}/book", null);
+        using var bookings = fixture.Bookings();
+        var owner = await LoginAsync();
+        var other = await LoginAsync();
+        Authorize(bookings, owner);
+        var created = await bookings.PostAsync($"/events/{Guid.NewGuid()}/book", null);
         Assert.Equal(HttpStatusCode.Accepted, created.StatusCode);
-        var booking = (await created.Content.ReadFromJsonAsync<BookingInfo>(JsonOptions))!;
-        var foreign = new AuthenticationHeaderValue("Bearer", await RegisterAndLogin(client));
-        client.DefaultRequestHeaders.Authorization = foreign;
-        var denied = await client.GetAsync($"/bookings/{booking.Id}");
-        Assert.Equal(HttpStatusCode.NotFound, denied.StatusCode);
-        var deniedBody = await denied.Content.ReadFromJsonAsync<JsonElement>();
-        Assert.False(deniedBody.TryGetProperty("userId", out _));
-
-        client.DefaultRequestHeaders.Authorization = admin;
-        var visible = await client.GetAsync($"/bookings/{booking.Id}");
-        Assert.Equal(HttpStatusCode.OK, visible.StatusCode);
-        Assert.Equal(booking.UserId, (await visible.Content.ReadFromJsonAsync<BookingInfo>(JsonOptions))!.UserId);
-        Assert.Equal(HttpStatusCode.NoContent, (await client.DeleteAsync($"/events/{ev.Id}")).StatusCode);
-        client.DefaultRequestHeaders.Authorization = foreign;
-        var missing = await client.GetAsync($"/bookings/{booking.Id}");
-        Assert.Equal(HttpStatusCode.NotFound, missing.StatusCode);
-        var missingBody = await missing.Content.ReadFromJsonAsync<JsonElement>();
-        Assert.Equal(deniedBody.GetProperty("detail").GetString(), missingBody.GetProperty("detail").GetString());
-        Assert.Equal(deniedBody.GetProperty("title").GetString(), missingBody.GetProperty("title").GetString());
+        var location = created.Headers.Location!;
+        var body = await created.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("Pending", body.GetProperty("status").GetString());
+        Authorize(bookings, other);
+        Assert.Equal(HttpStatusCode.NotFound, (await bookings.GetAsync(location)).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await bookings.DeleteAsync(location)).StatusCode);
+        Authorize(bookings, owner);
+        Assert.Equal(HttpStatusCode.OK, (await bookings.GetAsync(location)).StatusCode);
+        Authorize(bookings, await LoginAsync("Admin"));
+        Assert.Equal(HttpStatusCode.OK, (await bookings.GetAsync(location)).StatusCode);
+        Assert.Equal(HttpStatusCode.NoContent, (await bookings.DeleteAsync(location)).StatusCode);
+        Assert.Equal(HttpStatusCode.NoContent, (await bookings.DeleteAsync(location)).StatusCode);
+        var cancelled = await bookings.GetFromJsonAsync<JsonElement>(location);
+        Assert.Equal("Cancelled", cancelled.GetProperty("status").GetString());
     }
 
     [Fact]
-    public async Task StartedEvent_Returns400()
+    public async Task Services_DoNotModifyEachOthersDataBeforeKafkaIsConnected()
     {
-        using var client = fixture.CreateClient();
-        var ev = await CreateEvent(client, DateTime.UtcNow.AddHours(-1));
-        client.DefaultRequestHeaders.Authorization = new("Bearer", await RegisterAndLogin(client));
-        Assert.Equal(HttpStatusCode.BadRequest, (await client.PostAsync($"/events/{ev.Id}/book", null)).StatusCode);
+        using var events = fixture.Events();
+        using var bookings = fixture.Bookings();
+        Authorize(events, await LoginAsync("Admin"));
+        Authorize(bookings, await LoginAsync());
+        var created = await events.PostAsJsonAsync("/events", NewEvent());
+        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+        var eventBody = await created.Content.ReadFromJsonAsync<JsonElement>();
+        var eventId = eventBody.GetProperty("id").GetGuid();
+        var accepted = await bookings.PostAsync($"/events/{eventId}/book", null);
+        Assert.Equal(HttpStatusCode.Accepted, accepted.StatusCode);
+        var location = accepted.Headers.Location!;
+        JsonElement booking = default;
+        for (var attempt = 0; attempt < 100; attempt++)
+        {
+            booking = await bookings.GetFromJsonAsync<JsonElement>(location);
+            if (booking.GetProperty("status").GetString() == "Confirmed") break;
+            await Task.Delay(100);
+        }
+        Assert.Equal("Confirmed", booking.GetProperty("status").GetString());
+        var unchanged = await events.GetFromJsonAsync<JsonElement>($"/events/{eventId}");
+        Assert.Equal(5, unchanged.GetProperty("availableSeats").GetInt32());
+        Assert.Equal(HttpStatusCode.NoContent, (await events.DeleteAsync($"/events/{eventId}")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await bookings.GetAsync(location)).StatusCode);
+        Assert.Equal(HttpStatusCode.NoContent, (await bookings.DeleteAsync(location)).StatusCode);
     }
 
     [Fact]
-    public async Task UserLimit_Returns409_AndAnotherUserCanBook()
+    public async Task Events_ValidationCrudAndMissingResources()
     {
-        using var client = fixture.CreateClient();
-        var ev = await CreateEvent(client);
-        client.DefaultRequestHeaders.Authorization = new("Bearer", await RegisterAndLogin(client));
-        for (var i = 0; i < 10; i++)
-            Assert.Equal(HttpStatusCode.Accepted, (await client.PostAsync($"/events/{ev.Id}/book", null)).StatusCode);
-        var rejected = await client.PostAsync($"/events/{ev.Id}/book", null);
-        Assert.Equal(HttpStatusCode.Conflict, rejected.StatusCode);
-        Assert.Contains("10", await rejected.Content.ReadAsStringAsync());
-        client.DefaultRequestHeaders.Authorization = new("Bearer", await RegisterAndLogin(client));
-        Assert.Equal(HttpStatusCode.Accepted, (await client.PostAsync($"/events/{ev.Id}/book", null)).StatusCode);
+        using var events = fixture.Events();
+        Authorize(events, await LoginAsync("Admin"));
+        Assert.Equal(HttpStatusCode.BadRequest, (await events.PostAsJsonAsync("/events", new { title = "" })).StatusCode);
+        var created = await events.PostAsJsonAsync("/events", NewEvent());
+        var id = (await created.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetGuid();
+        var update = await events.PutAsJsonAsync($"/events/{id}", new
+        {
+            title = "Updated", startAt = DateTime.UtcNow.AddDays(2), endAt = DateTime.UtcNow.AddDays(3), totalSeats = 7
+        });
+        Assert.Equal(HttpStatusCode.NoContent, update.StatusCode);
+        Assert.Equal("Updated", (await events.GetFromJsonAsync<JsonElement>($"/events/{id}")).GetProperty("title").GetString());
+        Assert.Equal(HttpStatusCode.NoContent, (await events.DeleteAsync($"/events/{id}")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await events.GetAsync($"/events/{id}")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await events.PutAsJsonAsync($"/events/{id}", NewEvent())).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await events.DeleteAsync($"/events/{id}")).StatusCode);
     }
 
     [Fact]
-    public async Task RegistrationValidation_AndGenericLoginError()
+    public async Task RegistrationAndLogin_InvalidDataReturnsBadRequest()
     {
-        using var client = fixture.CreateClient();
-        Assert.Equal(HttpStatusCode.BadRequest,
-            (await client.PostAsJsonAsync("/auth/register", new { login = "", password = "" })).StatusCode);
-        Assert.Equal(HttpStatusCode.BadRequest,
-            (await client.PostAsJsonAsync("/auth/register", new { login = "invalid", password = "password", role = "Unknown" })).StatusCode);
-        var login = "default-" + Guid.NewGuid();
-        Assert.Equal(HttpStatusCode.NoContent,
-            (await client.PostAsJsonAsync("/auth/register", new { login, password = "password" })).StatusCode);
-        Assert.Equal(HttpStatusCode.BadRequest,
-            (await client.PostAsJsonAsync("/auth/register", new { login, password = "password" })).StatusCode);
-        var missing = await client.PostAsJsonAsync("/auth/login", new { login = "missing", password = "wrong" });
-        var wrong = await client.PostAsJsonAsync("/auth/login", new { login, password = "wrong" });
-        Assert.Equal(HttpStatusCode.BadRequest, missing.StatusCode);
+        using var users = fixture.Users();
+        Assert.Equal(HttpStatusCode.BadRequest, (await users.PostAsJsonAsync("/auth/register", new { login = "", password = "" })).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await users.PostAsJsonAsync("/auth/register", new { login = "role", password = "password", role = "Unknown" })).StatusCode);
+        var login = Guid.NewGuid().ToString();
+        Assert.Equal(HttpStatusCode.NoContent, (await users.PostAsJsonAsync("/auth/register", new { login, password = "password" })).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await users.PostAsJsonAsync("/auth/register", new { login, password = "password" })).StatusCode);
+        var wrong = await users.PostAsJsonAsync("/auth/login", new { login, password = "wrong" });
+        var missing = await users.PostAsJsonAsync("/auth/login", new { login = Guid.NewGuid().ToString(), password = "wrong" });
         Assert.Equal(HttpStatusCode.BadRequest, wrong.StatusCode);
-        var a = await missing.Content.ReadFromJsonAsync<JsonElement>();
-        var b = await wrong.Content.ReadFromJsonAsync<JsonElement>();
-        Assert.Equal(a.GetProperty("detail").GetString(), b.GetProperty("detail").GetString());
-        var token = (await (await client.PostAsJsonAsync("/auth/login", new { login, password = "password" }))
-            .Content.ReadFromJsonAsync<TokenInfo>())!.Token;
-        client.DefaultRequestHeaders.Authorization = new("Bearer", token);
-        Assert.Equal(HttpStatusCode.Forbidden, (await client.PostAsJsonAsync("/events", Request())).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, missing.StatusCode);
+        Assert.Equal((await wrong.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("detail").GetString(),
+            (await missing.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("detail").GetString());
+    }
+
+    [Theory]
+    [InlineData("wrong-key")]
+    [InlineData("wrong-issuer")]
+    [InlineData("wrong-audience")]
+    [InlineData("expired")]
+    [InlineData("malformed")]
+    public async Task InvalidJwt_IsRejectedByBothProtectedApis(string invalid)
+    {
+        var options = new JwtOptions(
+            invalid == "wrong-key" ? HttpApiFixture.Secret + "wrong" : HttpApiFixture.Secret,
+            invalid == "wrong-issuer" ? "wrong" : "http-tests",
+            invalid == "wrong-audience" ? "wrong" : "http-tests", 60);
+        var token = new JwtTokenGenerator(options, invalid == "expired" ? new OldClock() : TimeProvider.System)
+            .Generate(User.Create("invalid", "hash", UserRole.Admin));
+        if (invalid == "malformed") token = "not-a-jwt";
+        using var events = fixture.Events();
+        using var bookings = fixture.Bookings();
+        Authorize(events, token); Authorize(bookings, token);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await events.PostAsJsonAsync("/events", NewEvent())).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await bookings.GetAsync($"/bookings/{Guid.NewGuid()}")).StatusCode);
+    }
+
+    private sealed class OldClock : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => DateTimeOffset.UtcNow.AddDays(-2);
     }
 
     [Fact]
-    public async Task Swagger_DefinesBearerAuthentication()
+    public async Task Swagger_SplitsRoutesAndMarksOnlyAuthorizedOperations()
     {
-        using var client = fixture.CreateClient();
-        var json = await client.GetFromJsonAsync<JsonElement>("/swagger/v1/swagger.json");
-        var bearer = json.GetProperty("components").GetProperty("securitySchemes").GetProperty("bearer");
-        Assert.Equal("http", bearer.GetProperty("type").GetString());
-        Assert.Equal("bearer", bearer.GetProperty("scheme").GetString());
-        var paths = json.GetProperty("paths");
-        Assert.True(paths.TryGetProperty("/auth/login", out _));
-        Assert.True(paths.TryGetProperty("/auth/register", out _));
-        Assert.True(paths.GetProperty("/bookings/{id}").TryGetProperty("delete", out _));
-        Assert.False(json.TryGetProperty("security", out _));
-        foreach (var (path, method) in new[]
-        {
-            ("/auth/register", "post"), ("/auth/login", "post"),
-            ("/events", "get"), ("/events/{id}", "get")
-        })
-        {
-            var operation = paths.GetProperty(path).GetProperty(method);
-            Assert.True(!operation.TryGetProperty("security", out var security) || security.GetArrayLength() == 0);
-        }
-        foreach (var (path, method) in new[]
-        {
-            ("/events", "post"), ("/events/{id}", "put"), ("/events/{id}", "delete"),
-            ("/events/{id}/book", "post"), ("/bookings/{id}", "get"), ("/bookings/{id}", "delete")
-        })
-        {
-            var security = paths.GetProperty(path).GetProperty(method).GetProperty("security");
-            Assert.True(security[0].TryGetProperty("bearer", out _));
-        }
+        using var users = fixture.Users();
+        using var events = fixture.Events();
+        using var bookings = fixture.Bookings();
+        var u = (await users.GetFromJsonAsync<JsonElement>("/swagger/v1/swagger.json")).GetProperty("paths");
+        var e = (await events.GetFromJsonAsync<JsonElement>("/swagger/v1/swagger.json")).GetProperty("paths");
+        var b = (await bookings.GetFromJsonAsync<JsonElement>("/swagger/v1/swagger.json")).GetProperty("paths");
+        Assert.Equal(2, u.EnumerateObject().Count());
+        Assert.Equal(2, e.EnumerateObject().Count());
+        Assert.Equal(2, b.EnumerateObject().Count());
+        Assert.False(u.GetProperty("/auth/login").GetProperty("post").TryGetProperty("security", out _));
+        Assert.False(e.GetProperty("/events").GetProperty("get").TryGetProperty("security", out _));
+        Assert.True(e.GetProperty("/events").GetProperty("post").TryGetProperty("security", out _));
+        Assert.True(b.GetProperty("/bookings/{id}").GetProperty("get").TryGetProperty("security", out _));
     }
 }

@@ -1,7 +1,8 @@
 using Microsoft.Extensions.DependencyInjection;
-using ProjectWork.Application.DTO;
-using ProjectWork.Application.Services;
-using ProjectWork.Domain.Entities;
+using ProjectWork.Events.Application.DTO;
+using ProjectWork.Events.Application.Services;
+using ProjectWork.Bookings.Domain.Entities;
+using ProjectWork.Bookings.Application.Services;
 
 namespace ProjectWork.Tests;
 
@@ -29,10 +30,10 @@ public class ServiceDtoTests
         var found = await events.GetEventByIdAsync(created.Id);
         Assert.NotNull(found);
         Assert.Equal("Original", found.Title);
-        Assert.Equal(2, found.AvailableSeats);
+        Assert.Equal(3, found.AvailableSeats);
         Assert.Equal(3, created.AvailableSeats);
         Assert.Equal(BookingStatus.Pending, booking.Status);
-        Assert.Equal(BookingStatus.Confirmed, (await bookings.GetBookingByIdAsync(booking.Id, database.UserId, UserRole.User))!.Status);
+        Assert.Equal(BookingStatus.Confirmed, (await bookings.GetBookingByIdAsync(booking.Id, database.UserId, false))!.Status);
 
         var page = await events.GetEventsAsync(null, null, null, 1, 10);
         Assert.Equal(found.Id, Assert.Single(page.Items).Id);

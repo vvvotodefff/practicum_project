@@ -1,14 +1,14 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
-using ProjectWork.Infrastructure.Persistence;
-using ProjectWork.Application.Abstractions;
-using ProjectWork.Application.Abstractions.Repositories;
+using ProjectWork.Events.Infrastructure.Persistence;
+using ProjectWork.Events.Application.Abstractions;
+using ProjectWork.Events.Application.Abstractions.Repositories;
 
 namespace ProjectWork.IntegrationTests;
 
 [Collection(PostgresCollection.Name)]
 [Trait("Category", "Integration")]
-public sealed class EventRepositoryTests(PostgresFixture fixture) : DatabaseTest(fixture)
+public sealed class EventRepositoryTests(PostgresFixture fixture) : EventsDatabaseTest(fixture)
 {
     [Fact]
     public async Task AddAsync_PersistsAllFieldsAndClientGeneratedId()
@@ -23,7 +23,7 @@ public sealed class EventRepositoryTests(PostgresFixture fixture) : DatabaseTest
 
         // Assert: новый scope исключает получение объекта только из ChangeTracker.
         await using var scope = NewScope();
-        var saved = await scope.ServiceProvider.GetRequiredService<AppDbContext>().Events.SingleAsync();
+        var saved = await scope.ServiceProvider.GetRequiredService<EventsDbContext>().Events.SingleAsync();
         Assert.Equal(originalId, saved.Id);
         Assert.Equal(eventItem.Title, saved.Title);
         Assert.Equal(eventItem.Description, saved.Description);
@@ -52,7 +52,7 @@ public sealed class EventRepositoryTests(PostgresFixture fixture) : DatabaseTest
         result.Title = "Not saved";
         await Context.SaveChangesAsync();
         await using var scope = NewScope();
-        var saved = await scope.ServiceProvider.GetRequiredService<AppDbContext>().Events.SingleAsync();
+        var saved = await scope.ServiceProvider.GetRequiredService<EventsDbContext>().Events.SingleAsync();
         Assert.Equal(eventItem.Title, saved.Title);
     }
 
@@ -113,7 +113,7 @@ public sealed class EventRepositoryTests(PostgresFixture fixture) : DatabaseTest
 
         // Assert
         await using var scope = NewScope();
-        var saved = await scope.ServiceProvider.GetRequiredService<AppDbContext>().Events.SingleAsync();
+        var saved = await scope.ServiceProvider.GetRequiredService<EventsDbContext>().Events.SingleAsync();
         Assert.Equal(eventItem.Id, saved.Id);
         Assert.Equal("Updated", saved.Title);
         Assert.Null(saved.Description);
@@ -136,18 +136,16 @@ public sealed class EventRepositoryTests(PostgresFixture fixture) : DatabaseTest
             await UnitOfWork.SaveChangesAsync();
         });
         await using var scope = NewScope();
-        Assert.Empty(await scope.ServiceProvider.GetRequiredService<AppDbContext>().Events.ToListAsync());
+        Assert.Empty(await scope.ServiceProvider.GetRequiredService<EventsDbContext>().Events.ToListAsync());
     }
 
     [Fact]
-    public async Task DeleteAsync_RemovesOnlySelectedEventAndItsBookings()
+    public async Task DeleteAsync_RemovesOnlySelectedEvent()
     {
         // Arrange
         var removed = NewEvent("Remove");
         var kept = NewEvent("Keep");
         await SeedEventsAsync(removed, kept);
-        var keptBooking = NewBooking(kept.Id);
-        Context.Bookings.AddRange(NewBooking(removed.Id), NewBooking(removed.Id), keptBooking);
         await Context.SaveChangesAsync();
         Context.ChangeTracker.Clear();
 
@@ -158,9 +156,8 @@ public sealed class EventRepositoryTests(PostgresFixture fixture) : DatabaseTest
         // Assert
         Assert.True(result);
         await using var scope = NewScope();
-        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var context = scope.ServiceProvider.GetRequiredService<EventsDbContext>();
         Assert.Equal(kept.Id, (await context.Events.SingleAsync()).Id);
-        Assert.Equal(keptBooking.Id, (await context.Bookings.SingleAsync()).Id);
         Assert.False(await Events.DeleteAsync(removed.Id));
     }
 

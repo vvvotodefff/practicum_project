@@ -1,28 +1,27 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
-using ProjectWork.Infrastructure.Persistence;
-using ProjectWork.Application.Abstractions;
-using ProjectWork.Application.Abstractions.Repositories;
-using ProjectWork.Domain.Entities;
+using ProjectWork.Bookings.Infrastructure.Persistence;
+using ProjectWork.Bookings.Application.Abstractions;
+using ProjectWork.Bookings.Application.Abstractions.Repositories;
+using ProjectWork.Bookings.Domain.Entities;
 
 namespace ProjectWork.IntegrationTests;
 
 [Collection(PostgresCollection.Name)]
 [Trait("Category", "Integration")]
-public sealed class BookingRepositoryTests(PostgresFixture fixture) : DatabaseTest(fixture)
+public sealed class BookingRepositoryTests(PostgresFixture fixture) : BookingsDatabaseTest(fixture)
 {
     private async Task<Booking[]> SeedBookingsAsync()
     {
-        var first = NewEvent("First");
-        var second = NewEvent("Second");
-        await SeedEventsAsync(first, second);
+        var first = Guid.NewGuid();
+        var second = Guid.NewGuid();
         var bookings = new[]
         {
-            NewBooking(first.Id),
-            NewBooking(first.Id, BookingStatus.Confirmed),
-            NewBooking(first.Id, BookingStatus.Rejected),
-            NewBooking(second.Id)
+            NewBooking(first),
+            NewBooking(first, BookingStatus.Confirmed),
+            NewBooking(first, BookingStatus.Rejected),
+            NewBooking(second)
         };
         Context.Bookings.AddRange(bookings);
         await Context.SaveChangesAsync();
@@ -30,56 +29,7 @@ public sealed class BookingRepositoryTests(PostgresFixture fixture) : DatabaseTe
         return bookings;
     }
 
-    [Fact]
-    public async Task AddAsync_PersistsBookingAndReservedSeatInSharedContext()
-    {
-        // Arrange
-        var eventItem = NewEvent(seats: 3);
-        await SeedEventsAsync(eventItem);
-        var tracked = await Events.GetByIdForUpdateAsync(eventItem.Id);
-        Assert.True(tracked!.TryReserveSeats());
-        var booking = NewBooking(eventItem.Id);
-        var originalId = booking.Id;
 
-        // Act
-        await Bookings.AddAsync(booking);
-        await UnitOfWork.SaveChangesAsync();
-
-        // Assert
-        await using var scope = NewScope();
-        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-        var saved = await context.Bookings.SingleAsync();
-        Assert.Equal(originalId, saved.Id);
-        Assert.Equal(eventItem.Id, saved.EventId);
-        Assert.Equal(BookingStatus.Pending, saved.Status);
-        Assert.Equal(booking.CreatedAt, saved.CreatedAt);
-        Assert.Equal(DateTimeKind.Utc, saved.CreatedAt.Kind);
-        Assert.Null(saved.ProcessedAt);
-        Assert.Equal(2, (await context.Events.SingleAsync()).AvailableSeats);
-    }
-
-    [Fact]
-    public async Task AddAsync_FailedInsert_RollsBackSeatChange()
-    {
-        // Arrange: намеренно нарушаем FK, чтобы проверить транзакцию настоящей PostgreSQL.
-        var eventItem = NewEvent(seats: 3);
-        await SeedEventsAsync(eventItem);
-        var tracked = await Events.GetByIdForUpdateAsync(eventItem.Id);
-        Assert.True(tracked!.TryReserveSeats());
-        var invalidBooking = NewBooking(Guid.NewGuid());
-
-        // Act / Assert
-        await AssertPostgresErrorAsync(async () =>
-        {
-            await Bookings.AddAsync(invalidBooking);
-            await UnitOfWork.SaveChangesAsync();
-        },
-            PostgresErrorCodes.ForeignKeyViolation, "FK_bookings_events_event_id");
-        await using var scope = NewScope();
-        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-        Assert.Equal(3, (await context.Events.SingleAsync()).AvailableSeats);
-        Assert.Empty(await context.Bookings.ToListAsync());
-    }
 
     [Fact]
     public async Task GetByIdAsync_ReturnsUntrackedBooking()
@@ -101,7 +51,7 @@ public sealed class BookingRepositoryTests(PostgresFixture fixture) : DatabaseTe
         actual.Confirm();
         await Context.SaveChangesAsync();
         await using var scope = NewScope();
-        var saved = await scope.ServiceProvider.GetRequiredService<AppDbContext>()
+        var saved = await scope.ServiceProvider.GetRequiredService<BookingsDbContext>()
             .Bookings.SingleAsync(b => b.Id == expected.Id);
         Assert.Equal(BookingStatus.Pending, saved.Status);
     }
@@ -213,7 +163,7 @@ public sealed class BookingRepositoryTests(PostgresFixture fixture) : DatabaseTe
 
         // Assert
         await using var scope = NewScope();
-        var saved = await scope.ServiceProvider.GetRequiredService<AppDbContext>()
+        var saved = await scope.ServiceProvider.GetRequiredService<BookingsDbContext>()
             .Bookings.SingleAsync(b => b.Id == original.Id);
         Assert.Equal(original.Id, saved.Id);
         Assert.Equal(original.EventId, saved.EventId);
@@ -223,73 +173,13 @@ public sealed class BookingRepositoryTests(PostgresFixture fixture) : DatabaseTe
         Assert.Equal(DateTimeKind.Utc, saved.ProcessedAt.Value.Kind);
     }
 
-    [Fact]
-    public async Task UpdateAsync_PersistsRejectedStatusAndReleasedSeatTogether()
-    {
-        // Arrange
-        var eventItem = NewEvent(seats: 2);
-        Assert.True(eventItem.TryReserveSeats());
-        await SeedEventsAsync(eventItem);
-        var booking = NewBooking(eventItem.Id);
-        Context.Bookings.Add(booking);
-        await Context.SaveChangesAsync();
-        Context.ChangeTracker.Clear();
-        var trackedEvent = await Events.GetByIdForUpdateAsync(eventItem.Id);
-        var trackedBooking = await Bookings.GetByIdForUpdateAsync(booking.Id);
-        trackedEvent!.ReleaseSeats();
-        trackedBooking!.Reject();
 
-        // Act
-        await Bookings.UpdateAsync(trackedBooking);
-        await UnitOfWork.SaveChangesAsync();
-
-        // Assert
-        await using var scope = NewScope();
-        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-        Assert.Equal(BookingStatus.Rejected, (await context.Bookings.SingleAsync()).Status);
-        Assert.Equal(2, (await context.Events.SingleAsync()).AvailableSeats);
-    }
-
-    [Fact]
-    public async Task UpdateAsync_FailedUpdate_RollsBackOtherTrackedChanges()
-    {
-        // Arrange
-        var eventItem = NewEvent(seats: 2);
-        Assert.True(eventItem.TryReserveSeats());
-        await SeedEventsAsync(eventItem);
-        var booking = NewBooking(eventItem.Id);
-        Context.Bookings.Add(booking);
-        await Context.SaveChangesAsync();
-        Context.ChangeTracker.Clear();
-        var trackedEvent = await Events.GetByIdForUpdateAsync(eventItem.Id);
-        var trackedBooking = await Bookings.GetByIdForUpdateAsync(booking.Id);
-        trackedEvent!.ReleaseSeats();
-        trackedBooking!.Reject();
-        Context.Entry(trackedBooking).Property(b => b.EventId).CurrentValue = Guid.NewGuid();
-
-        // Act / Assert
-        await AssertPostgresErrorAsync(async () =>
-        {
-            await Bookings.UpdateAsync(trackedBooking);
-            await UnitOfWork.SaveChangesAsync();
-        },
-            PostgresErrorCodes.ForeignKeyViolation, "FK_bookings_events_event_id");
-        await using var scope = NewScope();
-        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-        var saved = await context.Bookings.SingleAsync();
-        Assert.Equal(eventItem.Id, saved.EventId);
-        Assert.Equal(BookingStatus.Pending, saved.Status);
-        Assert.Null(saved.ProcessedAt);
-        Assert.Equal(1, (await context.Events.SingleAsync()).AvailableSeats);
-    }
 
     [Fact]
     public async Task UpdateAsync_MissingBooking_ThrowsConcurrencyException()
     {
         // Arrange
-        var eventItem = NewEvent();
-        await SeedEventsAsync(eventItem);
-        var missing = NewBooking(eventItem.Id);
+        var missing = NewBooking(Guid.NewGuid());
 
         // Act / Assert
         await Assert.ThrowsAsync<DbUpdateConcurrencyException>(async () =>
@@ -298,6 +188,6 @@ public sealed class BookingRepositoryTests(PostgresFixture fixture) : DatabaseTe
             await UnitOfWork.SaveChangesAsync();
         });
         await using var scope = NewScope();
-        Assert.Empty(await scope.ServiceProvider.GetRequiredService<AppDbContext>().Bookings.ToListAsync());
+        Assert.Empty(await scope.ServiceProvider.GetRequiredService<BookingsDbContext>().Bookings.ToListAsync());
     }
 }

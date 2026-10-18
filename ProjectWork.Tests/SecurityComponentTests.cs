@@ -3,9 +3,9 @@ using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using ProjectWork.Application.Abstractions.Security;
-using ProjectWork.Domain.Entities;
-using ProjectWork.Infrastructure.Security;
+using ProjectWork.Users.Application.Abstractions.Security;
+using ProjectWork.Users.Domain.Entities;
+using ProjectWork.Users.Infrastructure.Security;
 
 namespace ProjectWork.Tests;
 

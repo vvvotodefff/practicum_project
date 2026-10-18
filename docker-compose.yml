@@ -1,28 +1,58 @@
-# PostgreSQL для EventApi — файл из задания пятого спринта.
-# Локальная поправка: порт хоста 5433, поскольку 5432 уже занят.
-# Для подключения из приложения используйте Host=localhost;Port=5433.
-# Запуск из корня репозитория: docker compose up -d
-# Остановка: docker compose down
-# Данные сохраняются в именованном томе eventapi_pgdata
-
+# Этап 2: только независимые PostgreSQL. API запускаются локально.
+# Kafka и контейнеры приложений добавляются в следующих этапах.
 services:
-  postgres:
+  users-db:
     image: postgres:16-alpine
-    container_name: eventapi-postgres
     restart: unless-stopped
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: eventapi
+      POSTGRES_USER: users
+      POSTGRES_PASSWORD: users-development
+      POSTGRES_DB: users_db
     ports:
-      - "127.0.0.1:5433:5432"
+      - "127.0.0.1:5441:5432"
     volumes:
-      - eventapi_pgdata:/var/lib/postgresql/data
+      - users_pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d eventapi"]
+      test: ["CMD-SHELL", "pg_isready -U users -d users_db"]
       interval: 5s
       timeout: 5s
-      retries: 5
+      retries: 10
+
+  events-db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: events
+      POSTGRES_PASSWORD: events-development
+      POSTGRES_DB: events_db
+    ports:
+      - "127.0.0.1:5442:5432"
+    volumes:
+      - events_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U events -d events_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  bookings-db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: bookings
+      POSTGRES_PASSWORD: bookings-development
+      POSTGRES_DB: bookings_db
+    ports:
+      - "127.0.0.1:5443:5432"
+    volumes:
+      - bookings_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bookings -d bookings_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
 volumes:
-  eventapi_pgdata:
+  users_pgdata:
+  events_pgdata:
+  bookings_pgdata:

@@ -1,63 +1,40 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
-using ProjectWork.Application;
-using ProjectWork.Domain.Entities;
-using ProjectWork.Infrastructure.Security;
 using Microsoft.Extensions.Configuration;
-using ProjectWork.Application.Abstractions;
-using ProjectWork.Application.Abstractions.Repositories;
-using ProjectWork.Infrastructure.Persistence;
-using ProjectWork.Infrastructure.Repositories;
 
 namespace ProjectWork.Tests;
 
+// Тестовый хост содержит три НЕЗАВИСИМЫХ контекста, только для проверки границ.
 internal sealed class TestDatabase : IDisposable
 {
     public ServiceProvider Provider { get; }
-
-    public Guid UserId { get; private set; }
-    public Guid OtherUserId { get; private set; }
-
-    private sealed class TestClock : TimeProvider
-    {
-        public override DateTimeOffset GetUtcNow() => new(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
-    }
+    public Guid UserId { get; } = Guid.NewGuid();
+    public Guid OtherUserId { get; } = Guid.NewGuid();
 
     public TestDatabase()
     {
-        var databaseName = Guid.NewGuid().ToString();
         var services = new ServiceCollection();
+        var name = Guid.NewGuid().ToString();
         services.AddLogging();
-        services.AddSingleton<TimeProvider>(new TestClock());
-        services.AddSecurityServices(new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
-        {
-            ["Jwt:Secret"] = "Test-Only-Secret-At-Least-32-Bytes-Long",
-            ["Jwt:Issuer"] = "tests", ["Jwt:Audience"] = "tests", ["Jwt:LifetimeMinutes"] = "60"
-        }).Build());
-        services.AddScoped<IUserRepository, UserRepository>();
-        services.AddDbContext<AppDbContext>(options => options.UseInMemoryDatabase(databaseName));
-        services.AddScoped<IUnitOfWork, UnitOfWork>();
-        services.AddScoped<IEventRepository, EventRepository>();
-        services.AddScoped<IBookingRepository, BookingRepository>();
-        services.AddApplicationServices();
-        Provider = services.BuildServiceProvider(new ServiceProviderOptions
-        {
-            ValidateScopes = true, ValidateOnBuild = true
-        });
-        SeedUsers();
-    }
-
-    private void SeedUsers()
-    {
-        using var scope = CreateScope();
-        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-        var hasher = new Sha256PasswordHasher();
-        var first = User.Create("test-user", hasher.Hash("password"));
-        var second = User.Create("other-user", hasher.Hash("password"));
-        context.Users.AddRange(first, second);
-        context.SaveChanges();
-        UserId = first.Id;
-        OtherUserId = second.Id;
+        services.AddDbContext<ProjectWork.Users.Infrastructure.Persistence.UsersDbContext>(o => o.UseInMemoryDatabase(name + "Users"));
+        services.AddScoped<ProjectWork.Users.Application.Abstractions.IUnitOfWork, ProjectWork.Users.Infrastructure.Persistence.UnitOfWork>();
+        services.AddScoped<ProjectWork.Users.Application.Abstractions.Repositories.IUserRepository, ProjectWork.Users.Infrastructure.Repositories.UserRepository>();
+        ProjectWork.Users.Application.DependencyInjection.AddApplicationServices(services);
+        services.AddDbContext<ProjectWork.Events.Infrastructure.Persistence.EventsDbContext>(o => o.UseInMemoryDatabase(name + "Events"));
+        services.AddScoped<ProjectWork.Events.Application.Abstractions.IUnitOfWork, ProjectWork.Events.Infrastructure.Persistence.UnitOfWork>();
+        services.AddScoped<ProjectWork.Events.Application.Abstractions.Repositories.IEventRepository, ProjectWork.Events.Infrastructure.Repositories.EventRepository>();
+        ProjectWork.Events.Application.DependencyInjection.AddApplicationServices(services);
+        services.AddDbContext<ProjectWork.Bookings.Infrastructure.Persistence.BookingsDbContext>(o => o.UseInMemoryDatabase(name + "Bookings"));
+        services.AddScoped<ProjectWork.Bookings.Application.Abstractions.IUnitOfWork, ProjectWork.Bookings.Infrastructure.Persistence.UnitOfWork>();
+        services.AddScoped<ProjectWork.Bookings.Application.Abstractions.Repositories.IBookingRepository, ProjectWork.Bookings.Infrastructure.Repositories.BookingRepository>();
+        ProjectWork.Bookings.Application.DependencyInjection.AddApplicationServices(services);
+        ProjectWork.Users.Infrastructure.Security.SecurityRegistration.AddSecurityServices(services,
+            new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Jwt:Secret"] = "Tests-Only-Secret-At-Least-32-Bytes-Long",
+                ["Jwt:Issuer"] = "tests", ["Jwt:Audience"] = "tests", ["Jwt:LifetimeMinutes"] = "60"
+            }).Build());
+        Provider = services.BuildServiceProvider(new ServiceProviderOptions { ValidateScopes = true, ValidateOnBuild = true });
     }
 
     public IServiceScope CreateScope() => Provider.CreateScope();
