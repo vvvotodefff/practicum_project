@@ -69,13 +69,17 @@ public class ArchitectureTests
             scope.ServiceProvider.GetRequiredService<ProjectWork.Events.Infrastructure.Persistence.EventsDbContext>(),
             scope.ServiceProvider.GetRequiredService<ProjectWork.Bookings.Infrastructure.Persistence.BookingsDbContext>()
         ];
-        var names = new[] { "User", "Event", "Booking" };
+        // Events дополнительно хранит отметки обработанных сообщений (идемпотентность подписчика).
+        var names = new[] { new[] { "User" }, new[] { "Event", "ProcessedBooking" }, new[] { "Booking" } };
         for (var i = 0; i < contexts.Length; i++)
         {
-            var entity = Assert.Single(contexts[i].Model.GetEntityTypes());
-            Assert.Equal(names[i], entity.ClrType.Name);
-            Assert.Empty(entity.GetForeignKeys());
-            Assert.Empty(entity.GetNavigations());
+            var entities = contexts[i].Model.GetEntityTypes().OrderBy(e => e.ClrType.Name).ToList();
+            Assert.Equal(names[i], entities.Select(e => e.ClrType.Name));
+            Assert.All(entities, entity =>
+            {
+                Assert.Empty(entity.GetForeignKeys());
+                Assert.Empty(entity.GetNavigations());
+            });
         }
     }
 }

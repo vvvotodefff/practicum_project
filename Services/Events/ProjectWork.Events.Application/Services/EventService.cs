@@ -9,8 +9,10 @@ namespace ProjectWork.Events.Application.Services;
 
 /// <summary>Прикладные операции с событиями через порт репозитория.</summary>
 /// <param name="eventRepository">Доступ к событиям в текущем scope.</param>
+/// <param name="processedBookings">Учёт уже обработанных подтверждений броней.</param>
 /// <param name="unitOfWork">Атомарное сохранение изменений текущего scope.</param>
-public class EventService(IEventRepository eventRepository, IUnitOfWork unitOfWork) : IEventService
+public class EventService(IEventRepository eventRepository,
+    IProcessedBookingRepository processedBookings, IUnitOfWork unitOfWork) : IEventService
 {
     /// <inheritdoc />
     public async Task<PaginatedResult<EventInfo>> GetEventsAsync(string? title, DateTime? from,
@@ -104,6 +106,32 @@ public class EventService(IEventRepository eventRepository, IUnitOfWork unitOfWo
             eventItem.ReleaseSeats(count);
             await eventRepository.UpdateAsync(eventItem, cancellationToken);
             await unitOfWork.SaveChangesAsync(cancellationToken);
+        }
+        finally { EventWriteLock.Gate.Release(); }
+    }
+
+    /// <inheritdoc />
+    public async Task<BookingConfirmationResult> ApplyBookingConfirmedAsync(Guid bookingId, Guid eventId,
+        int seatsCount, CancellationToken cancellationToken = default)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(seatsCount);
+        await EventWriteLock.Gate.WaitAsync(cancellationToken);
+        try
+        {
+            if (await processedBookings.ExistsAsync(bookingId, cancellationToken))
+                return BookingConfirmationResult.AlreadyProcessed;
+
+            var eventItem = await eventRepository.GetByIdForUpdateAsync(eventId, cancellationToken);
+            var result = eventItem is null ? BookingConfirmationResult.EventNotFound
+                : eventItem.TryReserveSeats(seatsCount) ? BookingConfirmationResult.Applied
+                : BookingConfirmationResult.NoAvailableSeats;
+            if (result == BookingConfirmationResult.Applied)
+                await eventRepository.UpdateAsync(eventItem!, cancellationToken);
+
+            // Отмечаем и пропущенные сообщения: повторная доставка даёт тот же итог.
+            await processedBookings.AddAsync(bookingId, cancellationToken);
+            await unitOfWork.SaveChangesAsync(cancellationToken);
+            return result;
         }
         finally { EventWriteLock.Gate.Release(); }
     }

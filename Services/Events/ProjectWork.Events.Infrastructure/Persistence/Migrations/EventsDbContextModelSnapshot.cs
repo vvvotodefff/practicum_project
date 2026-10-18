@@ -66,6 +66,21 @@ namespace ProjectWork.Events.Infrastructure.Persistence.Migrations
                             t.HasCheckConstraint("ck_events_seats", "total_seats > 0 AND available_seats >= 0 AND available_seats <= total_seats");
                         });
                 });
+
+            modelBuilder.Entity("ProjectWork.Events.Infrastructure.Persistence.ProcessedBooking", b =>
+                {
+                    b.Property<Guid>("BookingId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("booking_id");
+
+                    b.Property<DateTime>("ProcessedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("processed_at");
+
+                    b.HasKey("BookingId");
+
+                    b.ToTable("processed_bookings", (string)null);
+                });
 #pragma warning restore 612, 618
         }
     }

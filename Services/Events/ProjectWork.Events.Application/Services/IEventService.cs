@@ -32,4 +32,11 @@ public interface IEventService
 
     /// <summary>Вернуть места в пул. Если события уже нет, ничего не делает.</summary>
     Task ReleaseSeatsAsync(Guid eventId, int count = 1, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Занять места по подтверждённой брони ровно один раз. Повторное подтверждение
+    /// той же брони места не списывает. Отметка об обработке и изменение мест сохраняются вместе.
+    /// </summary>
+    Task<BookingConfirmationResult> ApplyBookingConfirmedAsync(Guid bookingId, Guid eventId,
+        int seatsCount, CancellationToken cancellationToken = default);
 }

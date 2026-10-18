@@ -450,6 +450,33 @@ public class EventServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task Service_ApplyBookingConfirmed_DuplicateMessage_ReservesSeatsOnce()
+    {
+        var created = await AddEvent("Встреча", new DateTime(2026, 7, 10, 9, 0, 0), new DateTime(2026, 7, 10, 10, 0, 0), 5);
+        var bookingId = Guid.NewGuid();
+
+        Assert.Equal(BookingConfirmationResult.Applied,
+            await _service.ApplyBookingConfirmedAsync(bookingId, created.Id, 2));
+        Assert.Equal(BookingConfirmationResult.AlreadyProcessed,
+            await _service.ApplyBookingConfirmedAsync(bookingId, created.Id, 2));
+
+        Assert.Equal(3, (await _service.GetEventByIdAsync(created.Id))!.AvailableSeats);
+    }
+
+    [Fact]
+    public async Task Service_ApplyBookingConfirmed_NoSeatsOrUnknownEvent_SkipsWithoutChanges()
+    {
+        var created = await AddEvent("Встреча", new DateTime(2026, 7, 10, 9, 0, 0), new DateTime(2026, 7, 10, 10, 0, 0), 1);
+
+        Assert.Equal(BookingConfirmationResult.NoAvailableSeats,
+            await _service.ApplyBookingConfirmedAsync(Guid.NewGuid(), created.Id, 2));
+        Assert.Equal(BookingConfirmationResult.EventNotFound,
+            await _service.ApplyBookingConfirmedAsync(Guid.NewGuid(), Guid.NewGuid(), 1));
+
+        Assert.Equal(1, (await _service.GetEventByIdAsync(created.Id))!.AvailableSeats);
+    }
+
+    [Fact]
     public async Task Service_ReleaseSeats_ReturnsSeatToPool()
     {
         var created = await AddEvent("Концерт", new DateTime(2026, 9, 1, 19, 0, 0), new DateTime(2026, 9, 1, 22, 0, 0), 5);

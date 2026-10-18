@@ -16,6 +16,8 @@ using ProjectWork.Users.Infrastructure.Persistence;
 using ProjectWork.Events.Infrastructure.Persistence;
 using ProjectWork.Bookings.Infrastructure.Persistence;
 using ProjectWork.Bookings.Application.Abstractions.Messaging;
+using ProjectWork.Events.Infrastructure.Messaging;
+using Microsoft.Extensions.Hosting;
 
 namespace ProjectWork.PresentationTests;
 
@@ -62,6 +64,14 @@ public sealed class HttpApiFixture : IAsyncLifetime
                 {
                     services.RemoveAll<ProjectWork.Users.Infrastructure.Security.JwtOptions>();
                     services.AddSingleton(new ProjectWork.Users.Infrastructure.Security.JwtOptions(Secret, "http-tests", "http-tests", 60));
+                }
+                if (typeof(TEntry) == typeof(EventsMarker))
+                {
+                    // HTTP-тестам брокер не нужен: подписчик и создание топика проверяются отдельно.
+                    foreach (var kafkaService in services.Where(d => d.ServiceType == typeof(IHostedService) &&
+                        (d.ImplementationType == typeof(KafkaTopicInitializer) ||
+                         d.ImplementationType == typeof(BookingConfirmedConsumer))).ToList())
+                        services.Remove(kafkaService);
                 }
                 if (typeof(TEntry) == typeof(BookingsMarker))
                 {

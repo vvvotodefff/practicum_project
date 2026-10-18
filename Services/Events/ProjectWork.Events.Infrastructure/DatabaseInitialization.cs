@@ -4,10 +4,14 @@ using ProjectWork.Events.Infrastructure.Persistence;
 
 namespace ProjectWork.Events.Infrastructure;
 
-/// <summary>Инициализация схемы базы перед запуском HTTP и фоновых задач.</summary>
+/// <summary>
+/// Инициализация схемы базы перед запуском HTTP и фоновых задач
+/// </summary>
 public static class DatabaseInitialization
 {
-    /// <summary>Применить существующие миграции в отдельном scope, сохранив данные.</summary>
+    /// <summary>
+    /// Применить существующие миграции в отдельном scope, сохранив данные
+    /// </summary>
     public static async Task MigrateDatabaseAsync(this IServiceProvider services,
         CancellationToken cancellationToken = default)
     {

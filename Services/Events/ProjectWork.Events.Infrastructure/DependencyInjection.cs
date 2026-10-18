@@ -3,6 +3,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using ProjectWork.Events.Application.Abstractions;
 using ProjectWork.Events.Application.Abstractions.Repositories;
+using ProjectWork.Events.Infrastructure.Messaging;
 using ProjectWork.Events.Infrastructure.Persistence;
 using ProjectWork.Events.Infrastructure.Repositories;
 
@@ -18,7 +19,14 @@ public static class DependencyInjection
             throw new InvalidOperationException("Не задана строка подключения DefaultConnection.");
         services.AddDbContext<EventsDbContext>(options => options.UseNpgsql(connectionString));
         services.AddScoped<IEventRepository, EventRepository>();
+        services.AddScoped<IProcessedBookingRepository, ProcessedBookingRepository>();
         services.AddScoped<IUnitOfWork, UnitOfWork>();
+        services.AddSingleton(new KafkaOptions(
+            configuration["Kafka:BootstrapServers"], configuration["Kafka:ConsumerGroup"]));
+
+        // Порядок важен: топик создаётся до запуска подписчика.
+        services.AddHostedService<KafkaTopicInitializer>();
+        services.AddHostedService<BookingConfirmedConsumer>();
         return services;
     }
 }

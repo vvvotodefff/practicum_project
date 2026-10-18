@@ -13,10 +13,10 @@ namespace ProjectWork.IntegrationTests;
 public class MigrationTests(PostgresFixture fixture)
 {
     [Theory]
-    [InlineData("Users", "users")]
-    [InlineData("Events", "events")]
-    [InlineData("Bookings", "bookings")]
-    public async Task InitialMigration_CreatesOnlyOwnedTableAndMatchesModel(string service, string table)
+    [InlineData("Users", 1, "users")]
+    [InlineData("Events", 2, "events", "processed_bookings")]
+    [InlineData("Bookings", 1, "bookings")]
+    public async Task Migrations_CreateOnlyOwnedTablesAndMatchModel(string service, int migrations, params string[] tables)
     {
         await using var scope = fixture.CreateScope();
         DbContext context = service switch
@@ -27,17 +27,17 @@ public class MigrationTests(PostgresFixture fixture)
         };
         await context.Database.EnsureDeletedAsync();
         await context.Database.MigrateAsync();
-        Assert.Single(await context.Database.GetAppliedMigrationsAsync());
+        Assert.Equal(migrations, (await context.Database.GetAppliedMigrationsAsync()).Count());
         Assert.Empty(await context.Database.GetPendingMigrationsAsync());
         Assert.False(context.Database.HasPendingModelChanges());
-        var tables = await context.Database.SqlQueryRaw<string>(
+        var actualTables = await context.Database.SqlQueryRaw<string>(
             """SELECT table_name AS "Value" FROM information_schema.tables WHERE table_schema = 'public' AND table_name <> '__EFMigrationsHistory'""").ToListAsync();
-        Assert.Equal(table, Assert.Single(tables));
+        Assert.Equal(tables.Order(), actualTables.Order());
         // Проверяем Down и повторное применение миграции.
         await context.GetService<IMigrator>().MigrateAsync("0");
         Assert.Empty(await context.Database.GetAppliedMigrationsAsync());
         await context.Database.MigrateAsync();
-        Assert.Single(await context.Database.GetAppliedMigrationsAsync());
+        Assert.Equal(migrations, (await context.Database.GetAppliedMigrationsAsync()).Count());
     }
 
     [Fact]

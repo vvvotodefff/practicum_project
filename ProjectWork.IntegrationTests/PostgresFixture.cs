@@ -30,6 +30,7 @@ public sealed class PostgresFixture : IAsyncLifetime
             options.UseNpgsql(new NpgsqlConnectionStringBuilder(_container.GetConnectionString()) { Database = "events_tests" }.ConnectionString));
         services.AddScoped<ProjectWork.Events.Application.Abstractions.IUnitOfWork, ProjectWork.Events.Infrastructure.Persistence.UnitOfWork>();
         services.AddScoped<ProjectWork.Events.Application.Abstractions.Repositories.IEventRepository, ProjectWork.Events.Infrastructure.Repositories.EventRepository>();
+        services.AddScoped<ProjectWork.Events.Application.Abstractions.Repositories.IProcessedBookingRepository, ProjectWork.Events.Infrastructure.Repositories.ProcessedBookingRepository>();
         services.AddDbContext<ProjectWork.Bookings.Infrastructure.Persistence.BookingsDbContext>(options =>
             options.UseNpgsql(new NpgsqlConnectionStringBuilder(_container.GetConnectionString()) { Database = "bookings_tests" }.ConnectionString));
         services.AddScoped<ProjectWork.Bookings.Application.Abstractions.IUnitOfWork, ProjectWork.Bookings.Infrastructure.Persistence.UnitOfWork>();
