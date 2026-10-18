@@ -1,74 +1,56 @@
 # ProjectWork — спринт 9
 
-Учебный REST API на C# / .NET 10 / ASP.NET Core / EF Core / PostgreSQL.
-Выполнены этапы 2–4: три независимых сервиса, общий контракт и публикация BookingConfirmed в Kafka.
+Учебная система бронирования на C# / .NET 10 / ASP.NET Core / EF Core / PostgreSQL / Apache Kafka.
+Монолит разделён на три самостоятельных сервиса, которые обмениваются данными только через Kafka.
 Репозиторий: [practicum_project](https://github.com/vvvotodefff/practicum_project).
 
 ## Сервисы
 
-| Сервис | Ответственность | Swagger | Своя PostgreSQL |
+| Сервис | Ответственность | Swagger | Своя PostgreSQL (с хоста) |
 | --- | --- | --- | --- |
-| Users | Регистрация, вход, SHA-256, выдача JWT | http://localhost:5250/swagger | localhost:5441 / users_db |
-| Events | CRUD событий, свободные места | http://localhost:5251/swagger | localhost:5442 / events_db |
-| Bookings | Создание, чтение, отмена и фоновое подтверждение броней | http://localhost:5252/swagger | localhost:5443 / bookings_db |
+| Users | Регистрация, вход, выдача JWT | http://localhost:5250/swagger | localhost:5441 / users |
+| Events | CRUD событий, учёт свободных мест, подписчик Kafka | http://localhost:5251/swagger | localhost:5442 / events |
+| Bookings | Создание, чтение, отмена и фоновое подтверждение броней, издатель Kafka | http://localhost:5252/swagger | localhost:5443 / bookings |
 
-Каждая база имеет отдельного пользователя и том Docker. Сервисы не обращаются по HTTP
-друг к другу и не читают чужие таблицы. В Bookings хранятся только внешние
-идентификаторы EventId и UserId; навигаций и внешних ключей на другие сервисы нет.
+Инфраструктура: Zookeeper, Kafka (`localhost:9092` с хоста, `kafka:29092` внутри сети Docker).
 
-## Структура
-
-```text
-Services/
-  Users/
-    ProjectWork.Users.Domain/
-    ProjectWork.Users.Application/
-    ProjectWork.Users.Infrastructure/
-    ProjectWork.Users.Presentation/
-  Events/
-    ProjectWork.Events.Domain/
-    ProjectWork.Events.Application/
-    ProjectWork.Events.Infrastructure/
-    ProjectWork.Events.Presentation/
-  Bookings/
-    ProjectWork.Bookings.Domain/
-    ProjectWork.Bookings.Application/
-    ProjectWork.Bookings.Infrastructure/
-    ProjectWork.Bookings.Presentation/
-Shared/
-  ProjectWork.Contracts/
-ProjectWork.Tests/
-ProjectWork.IntegrationTests/
-ProjectWork.PresentationTests/
-ProjectWork.slnx
-docker-compose.yml
-```
-
-Domain не зависит от других слоёв; Application зависит от своего Domain,
-а в Events и Bookings — также от общей библиотеки Contracts.
-Infrastructure реализует порты Application. Presentation подключает свои Application
-и Infrastructure. Между сервисами нет ProjectReference.
-Application возвращает DTO; сохранение выполняет локальный IUnitOfWork.
-Фоновый обработчик Bookings создаёт scope через IServiceScopeFactory.
-
-Shared/ProjectWork.Contracts содержит неизменяемый BookingConfirmed
-(BookingId, EventId, UserId, SeatsCount, ConfirmedAt) и константу
-KafkaTopics.BookingConfirmed = "booking-confirmed".
-Контракт подключён к Application сервисов Events и Bookings; подробности и JSON —
-в [описании Contracts](Shared/ProjectWork.Contracts/README.md).
+Каждый сервис построен по чистой архитектуре (Domain, Application, Infrastructure,
+Presentation), имеет свою базу и свои миграции EF Core. Сервисы не вызывают друг
+друга по HTTP и не читают чужие таблицы: Bookings хранит только внешние
+идентификаторы EventId и UserId, без навигаций и внешних ключей.
 
 ## Запуск
 
-Нужны .NET SDK 10 и Docker Desktop с Linux-контейнерами.
-В корне репозитория:
+### Вся система в Docker
+
+Нужен Docker Desktop с Linux-контейнерами. В корне репозитория:
 
 ```powershell
-docker compose up -d --wait
-dotnet restore ProjectWork.slnx
-dotnet build ProjectWork.slnx --configuration Release
+docker compose up -d --build
 ```
 
-В трёх отдельных терминалах:
+Поднимаются Zookeeper, Kafka, три PostgreSQL и три сервиса. Каждый сервис при старте
+применяет свои миграции; Events дополнительно создаёт топик `booking-confirmed`.
+Сервисы ждут готовности своих БД и Kafka (healthcheck).
+
+Остановка без удаления данных — `docker compose down`, с удалением томов — `docker compose down -v`.
+
+Настройки сервисов в контейнерах передаются переменными окружения из
+[docker-compose.yml](docker-compose.yml) (`Секция__Ключ` переопределяет `appsettings.json`):
+строки подключения указывают на `users-db`/`events-db`/`bookings-db`, Kafka — на `kafka:29092`.
+JWT-секрет общий для трёх сервисов; по умолчанию используется учебное значение,
+своё можно задать переменной `JWT_SECRET` перед `docker compose up`.
+
+Образы собираются многоступенчатыми Dockerfile (`Services/<Сервис>/Dockerfile`, контекст —
+корень репозитория): SDK для restore/publish, `aspnet:10.0` для запуска от непривилегированного пользователя.
+
+### Сервисы локально
+
+Нужен .NET SDK 10. Поднимите только инфраструктуру и запустите сервисы из трёх терминалов:
+
+```powershell
+docker compose up -d --wait zookeeper kafka users-db events-db bookings-db
+```
 
 ```powershell
 dotnet run --project Services/Users/ProjectWork.Users.Presentation --launch-profile http
@@ -82,69 +64,70 @@ dotnet run --project Services/Events/ProjectWork.Events.Presentation --launch-pr
 dotnet run --project Services/Bookings/ProjectWork.Bookings.Presentation --launch-profile http
 ```
 
-При старте каждый сервис применяет только свои миграции. В Visual Studio откройте
-ProjectWork.slnx и назначьте три проекта Presentation запускаемыми проектами.
-
-Текущий compose запускает только три БД. Для Bookings нужен отдельно запущенный
-брокер Kafka (см. ниже). Общий compose с Kafka и API будет добавлен на этапе 7.
-Остановка БД без удаления данных: `docker compose down`.
+Профиль `http` использует окружение Development: учебный JWT-ключ берётся из
+`appsettings.Development.json`, БД — `localhost:5441–5443` (postgres / postgres),
+Kafka — `localhost:9092`. В базовом `appsettings.json` секрет пуст, поэтому
+Production без явно заданного `Jwt__Secret` не запустится.
+В Visual Studio откройте ProjectWork.slnx и назначьте три проекта Presentation запускаемыми.
 
 ### Настройки
 
-Строки подключения находятся в appsettings.json соответствующих Presentation.
-Учебные логины/пароли БД: users / users-development, events / events-development,
-bookings / bookings-development. Порты PostgreSQL привязаны к localhost.
+| Ключ | Сервисы | Назначение |
+| --- | --- | --- |
+| `ConnectionStrings:DefaultConnection` | все | Своя база сервиса |
+| `Jwt:Secret`, `Jwt:Issuer`, `Jwt:Audience` | все | Должны совпадать во всех трёх сервисах |
+| `Jwt:LifetimeMinutes` | Users | Время жизни выдаваемого токена |
+| `Kafka:BootstrapServers` | Events, Bookings | Адрес брокера |
+| `Kafka:ConsumerGroup` | Events | Группа потребителей (`events-group`) |
 
-JWT выдаёт только Users; Events и Bookings проверяют его подпись, срок, issuer,
-audience и claims. Во всех трёх сервисах Secret, Issuer и Audience должны совпадать.
-Существующая защита из спринта 8 сохранена при переносе.
+## Поток BookingConfirmed
 
-Учебный JWT-ключ есть только в appsettings.Development.json. В базовом appsettings.json
-Secret пуст: Production без явно заданного ключа не запустится.
-Для переопределения используйте переменные окружения:
-
-```powershell
-$env:Jwt__Secret = "<общий случайный секрет: минимум 32 байта UTF-8>"
-$env:Jwt__Issuer = "ProjectWork.Api"
-$env:Jwt__Audience = "ProjectWork.Client"
-$env:Jwt__LifetimeMinutes = "60"
-# Для каждого процесса — строка подключения к его собственной БД:
-$env:ConnectionStrings__DefaultConnection = "<строка подключения данного сервиса>"
+```mermaid
+sequenceDiagram
+    participant C as Клиент
+    participant B as Bookings
+    participant BDB as bookings
+    participant K as Kafka: booking-confirmed
+    participant E as Events
+    participant EDB as events
+    C->>B: POST /events/{id}/book (JWT)
+    B->>BDB: бронь Pending
+    B-->>C: 202 Accepted
+    Note over B: фоновый BookingProcessingService
+    B->>BDB: бронь Confirmed (SaveChanges)
+    B->>K: BookingConfirmed, ключ = EventId
+    K->>E: BookingConfirmedConsumer
+    E->>EDB: AvailableSeats -= SeatsCount + отметка в processed_bookings
 ```
 
-### Kafka: публикация из Bookings
+**Кто публикует.** Bookings. Фоновый `BookingProcessingService` переводит брони из Pending
+в Confirmed, сначала сохраняет статус в свою базу и только после этого публикует
+сообщение через `IBookingEventPublisher` (реализация — `KafkaBookingEventPublisher`).
+Producer один на приложение (singleton), при остановке выполняет Flush и Dispose.
+Ключ сообщения — EventId: все брони одного события попадают в один раздел и
+обрабатываются по порядку. Bookings не меняет места и не обращается к Events.
 
-В Bookings настройка `Kafka:BootstrapServers` по умолчанию равна `localhost:9092`.
-Можно переопределить её перед запуском:
+**Кто получает.** Events. `BookingConfirmedConsumer` (BackgroundService) подписан на топик
+в группе `events-group`: при нескольких экземплярах Events каждое сообщение получает
+только один из них. Блокирующий `Consume` работает в отдельной задаче; на каждое
+сообщение создаётся свой scope для DbContext и репозиториев. До запуска подписчика
+`KafkaTopicInitializer` создаёт топик (3 раздела), если его ещё нет; ошибка создания
+только логируется и не роняет сервис.
 
-```powershell
-$env:Kafka__BootstrapServers = "localhost:9092"
-```
+**Что происходит при получении.** Сообщение десериализуется в `BookingConfirmed`,
+и `EventService.ApplyBookingConfirmedAsync` уменьшает `AvailableSeats` события на
+`SeatsCount`. Одновременно в таблицу `processed_bookings` записывается BookingId — в одной
+операции SaveChanges с изменением мест. Поэтому:
 
-Для локального запуска можно использовать уже запущенный учебный Kafka-контейнер.
-Адрес в advertised.listeners брокера должен быть доступен приложению.
-Для контейнерного запуска `Kafka__BootstrapServers=kafka:9092` требует общей сети
-и внутреннего listener брокера: localhost из контейнера указывает на сам контейнер.
+- повторная доставка того же сообщения места повторно не списывает (идемпотентность);
+- событие не найдено или мест не хватает — сообщение пропускается с предупреждением в логе;
+- некорректный JSON или пустые поля — пропуск с предупреждением, подписчик не падает;
+- сбой БД — сообщение не подтверждается и читается повторно через 5 секунд.
 
-Подготовьте топик перед ручной проверкой (замените имя контейнера при необходимости):
+Смещение в Kafka сохраняется только после обработки сообщения.
 
-```powershell
-docker exec kafkademo-skeleton-kafka-1 kafka-topics --bootstrap-server localhost:9092 --create --if-not-exists --topic booking-confirmed --partitions 3 --replication-factor 1
-docker exec -it kafkademo-skeleton-kafka-1 kafka-console-consumer --bootstrap-server localhost:9092 --topic booking-confirmed --from-beginning --property print.key=true
-```
-
-После авторизованного POST /events/{id}/book на Bookings дождитесь фонового подтверждения.
-Consumer должен показать JSON BookingConfirmed с идентификатором новой брони
-и ключом, равным EventId. Старые сообщения тоже выводятся из-за --from-beginning.
-Автоматическое создание топика сервисом Events относится к этапу 5.
-
-Цепочка: BookingProcessingService → BookingService.MarkAsProcessedAsync →
-Confirm → SaveChangesAsync → IBookingEventPublisher → KafkaBookingEventPublisher.
-Публикация выполняется после сохранения БД и освобождения семафора.
-Издатель зарегистрирован как singleton, использует один потокобезопасный producer,
-ожидает ProduceAsync, при остановке выполняет ограниченный Flush и Dispose.
-JSON использует PascalCase; ключ — EventId, SeatsCount — 1, ConfirmedAt — ProcessedAt в UTC.
-Rejected, Cancelled и повторная обработка Confirmed не публикуют подтверждения.
+Формат сообщения и топик описаны в общем проекте
+[Shared/ProjectWork.Contracts](Shared/ProjectWork.Contracts/README.md), который подключают и Bookings, и Events.
 
 ## API
 
@@ -162,101 +145,97 @@ Rejected, Cancelled и повторная обработка Confirmed не пу
 | Bookings | DELETE /bookings/{id} | Владелец или Admin, 204; чужая — 403 |
 
 Создание брони отправляется **на порт Bookings (5252)**, хотя путь начинается с /events.
-UserId берётся из проверенного JWT. Лимит — 10 активных броней пользователя
-(Pending и Confirmed). Повторная отмена безопасна.
-Фоновый сервис переводит Pending в Confirmed, сохраняет ProcessedAt и публикует BookingConfirmed.
 
-Для ручной проверки зарегистрируйтесь в Users, получите token через /auth/login
-и вставьте его в Authorize в Swagger нужного сервиса (без префикса Bearer).
-Для создания события нужна роль Admin. Затем скопируйте id события в запрос
-создания брони на Bookings и получите бронь по Location.
+JWT выдаёт только Users; Events и Bookings проверяют подпись, срок, издателя, аудиторию
+и claims (`sub` — идентификатор пользователя, `role` — User или Admin). Без токена — 401,
+без роли Admin на управлении событиями — 403. Swagger каждого сервиса поддерживает
+кнопку Authorize: вставьте token из `/auth/login` без префикса Bearer.
 
-Title обязателен (до 200 символов), Description — до 2000. StartAt и EndAt обязательны,
-EndAt > StartAt, TotalSeats > 0. Events сохраняет занятые места при изменении вместимости.
-Время хранится в UTC. Ошибки — Problem Details; неверная модель — 400,
-отсутствующий/невалидный JWT — 401, недостаточные права — 403.
-Swagger показывает замок только на защищённых операциях.
+Лимит — 10 активных броней пользователя (Pending и Confirmed). Повторная отмена безопасна.
+Title обязателен (до 200 символов), Description — до 2000, EndAt > StartAt, TotalSeats > 0.
+Время хранится в UTC. Ошибки возвращаются в формате Problem Details.
 
-## Граница выполненного этапа
+## Проверка сценария
 
-После этапа 4 подтверждение сохраняется в bookings_db и публикуется в Kafka.
-Количество мест в events_db пока не меняется: подписчик Events появится на этапе 5.
-Отмена изменяет только бронь; сообщение об отмене пока не предусмотрено.
+На запущенной в Docker системе:
 
-Сохранение PostgreSQL и публикация Kafka не являются общей транзакцией.
-При сбое после SaveChanges бронь остаётся Confirmed, даже если сообщение не доставлено.
-Повторный проход обработчика выбирает только Pending и не переотправляет Confirmed.
-Ошибка логируется без обещания автоматического повтора; возврат статуса в Pending не выполняется.
-EnableIdempotence защищает внутренние повторы producer, но не устраняет это окно сбоя.
-Для гарантированной повторной отправки нужен Transactional Outbox, не входящий в этап 4.
+```powershell
+./scripts/Verify-Docker.ps1
+```
 
-Bookings не может синхронно проверить существование события, дату его начала или
-оставшиеся места через чужую базу. Сейчас принимается любой непустой EventId.
-Проверка этих фактов требует обмена сообщениями.
-Одно сообщение BookingConfirmed само по себе не обеспечивает синхронный отказ при
-переполнении, возврат места при отмене или проверку прошедшего события; для таких
-гарантий потребуется расширение протокола.
+Скрипт регистрирует Admin и User в Users, проверяет 403/401, создаёт событие на 5 мест
+в Events, бронирует место в Bookings и ждёт, пока бронь станет Confirmed, а в Events
+останется 4 места — уменьшение приходит только через Kafka.
 
-Удаление события больше не каскадно удаляет брони из другой базы.
-Старые данные монолитной eventapi не переносятся автоматически: новые БД создаются
-пустыми. Старый том eventapi_pgdata не удалялся; прежняя схема доступна в истории Git.
+То же вручную через Swagger: зарегистрируйтесь в Users (`role: Admin`), получите token,
+создайте событие в Events, под токеном пользователя забронируйте его в Bookings,
+через пару секунд проверьте статус брони и `availableSeats` события.
 
-Учебные ограничения спринта 8 сохранены: регистрация позволяет выбрать Admin,
-используется SHA-256 без соли. Для реального сервиса нужны отдельное назначение ролей
-и парольный KDF. Семафоры защищают изменения внутри одного процесса, не нескольких реплик.
+Посмотреть сообщения в топике:
+
+```powershell
+docker exec -it eventapi-kafka kafka-console-consumer --bootstrap-server localhost:29092 --topic booking-confirmed --from-beginning --property print.key=true
+```
+
+## Ограничения
+
+- Сохранение брони и публикация не составляют общей транзакции: при сбое между ними бронь
+  останется Confirmed без сообщения. Гарантированная доставка требует Transactional Outbox.
+- Bookings не знает, существует ли событие и есть ли места: бронь подтверждается сразу,
+  а Events при нехватке мест только пропускает сообщение. Отказа брони и возврата мест
+  при отмене нет — для этого нужны дополнительные сообщения.
+- Удаление события не затрагивает брони в другой базе.
+- Учебные упрощения из спринта 8: регистрация позволяет выбрать роль Admin, пароли хешируются
+  SHA-256 без соли. Семафоры защищают изменения только внутри одного процесса.
+
+## Структура
+
+```text
+Services/
+  Users/     Domain, Application, Infrastructure, Presentation, Dockerfile
+  Events/    Domain, Application, Infrastructure (+ Messaging: подписчик, создание топика), Presentation, Dockerfile
+  Bookings/  Domain, Application, Infrastructure (+ Messaging: издатель), Presentation, Dockerfile
+Shared/
+  ProjectWork.Contracts/   BookingConfirmed и имя топика
+ProjectWork.Tests/               unit-тесты
+ProjectWork.IntegrationTests/    репозитории и миграции на PostgreSQL
+ProjectWork.PresentationTests/   HTTP, JWT, Kafka
+scripts/
+docker-compose.yml
+ProjectWork.slnx
+```
+
+Domain не зависит от других слоёв; Application зависит от своего Domain (Events и Bookings —
+также от Contracts); Infrastructure реализует порты Application; Presentation подключает
+свои Application и Infrastructure. Между сервисами нет ProjectReference.
 
 ## Миграции
 
-У каждого Infrastructure есть собственные InitialCreate, designer и snapshot:
+- Users: InitialCreate — `users`.
+- Events: InitialCreate — `events`; AddProcessedBookings — `processed_bookings` для идемпотентности.
+- Bookings: InitialCreate — `bookings`, без FK в чужие базы.
 
-- UsersDbContext: только users.
-- EventsDbContext: только events.
-- BookingsDbContext: только bookings, без FK в чужие базы.
-
-Пример следующей миграции (для других сервисов замените Users):
+Новая миграция (для других сервисов замените Users):
 
 ```powershell
-$env:ASPNETCORE_ENVIRONMENT = "Development"
 dotnet ef migrations add MigrationName --project Services/Users/ProjectWork.Users.Infrastructure --startup-project Services/Users/ProjectWork.Users.Presentation --context UsersDbContext --output-dir Persistence/Migrations
 ```
 
-Ручное применение существующей миграции:
-
-```powershell
-dotnet ef database update --project Services/Users/ProjectWork.Users.Infrastructure --startup-project Services/Users/ProjectWork.Users.Presentation --context UsersDbContext
-```
-
-Миграции старого общего AppDbContext в новые базы применять нельзя.
-
-## Проверки
+## Тесты
 
 ```powershell
 dotnet test ProjectWork.slnx --configuration Release --verbosity minimal
 ```
 
-- ProjectWork.Tests: доменные правила, DTO, сервисы, хеширование/JWT,
-  зависимости слоёв, модели трёх InMemory-контекстов, порядок сохранения/публикации,
-  ошибки БД/издателя и отсутствие повторной публикации.
-- ProjectWork.IntegrationTests: репозитории и отдельные миграции на PostgreSQL,
-  независимые базы и отсутствие межсервисных FK.
-- ProjectWork.PresentationTests: три HTTP-конвейера, JWT, 401/403/404,
-  маршруты, CRUD, отмена, фоновая обработка и Swagger.
-  Обычные HTTP-тесты используют записывающий тестовый издатель.
-  Отдельный KafkaPublicationTests проверяет настоящий HTTP → PostgreSQL →
-  фоновое подтверждение → Kafka: два сообщения с одним EventId имеют один ключ
-  и попадают в один раздел; при получении статус уже сохранён в БД.
+- ProjectWork.Tests: доменные правила, сервисы, JWT, зависимости слоёв, порядок
+  сохранения и публикации, идемпотентное применение подтверждений в Events.
+- ProjectWork.IntegrationTests: репозитории и миграции каждого сервиса на PostgreSQL.
+- ProjectWork.PresentationTests: три HTTP-конвейера, 401/403/404, совпадение JWT-настроек
+  сервисов, Swagger. `KafkaPublicationTests` — публикация из Bookings на настоящем брокере;
+  `KafkaSubscriptionTests` — Events на пустом брокере создаёт топик и списывает места
+  ровно один раз, пропуская дубликат и некорректное сообщение.
 
-Тесты сами создают и удаляют временные контейнеры PostgreSQL и Kafka со случайными
-портами. Рабочие БД compose и брокер localhost:9092 не используются.
-
-Только сквозная проверка Kafka:
-
-```powershell
-dotnet test ProjectWork.PresentationTests --configuration Release --filter Category=Kafka
-```
-
-CI в .github/workflows/ci.yml собирает решение и запускает тесты при push в main/sprint-*
-и PR в main. Для отдельного прогона HTTP-проверок:
-`./scripts/Verify-Api.ps1 -Configuration Release`.
-
-Чек-лист спринта 8 — исторический отчёт для прежнего монолита, не текущей структуры.
+Тесты сами поднимают временные контейнеры PostgreSQL и Kafka со случайными портами и
+не трогают базы compose. Только Kafka-тесты: `--filter Category=Kafka`.
+CI ([.github/workflows/ci.yml](.github/workflows/ci.yml)) собирает решение и запускает тесты
+при push в main/sprint-* и PR в main.
