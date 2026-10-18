@@ -29,6 +29,22 @@ public class JwtConfigurationTests
         Validate(service, config);
     }
 
+    [Theory]
+    [InlineData("Development")]
+    [InlineData("Production")]
+    public void TokenValidationParameters_AreIdenticalInAllServices(string environment)
+    {
+        // Токен от Users пройдёт проверку только при совпадении секрета, издателя и аудитории.
+        var configs = new[] { "Users", "Events", "Bookings" }.Select(service =>
+        {
+            var folder = Path.Combine(Root(), "Services", service, $"ProjectWork.{service}.Presentation");
+            return new ConfigurationBuilder().AddJsonFile(Path.Combine(folder, "appsettings.json"))
+                .AddJsonFile(Path.Combine(folder, $"appsettings.{environment}.json"), optional: true).Build();
+        }).ToList();
+        foreach (var key in new[] { "Jwt:Secret", "Jwt:Issuer", "Jwt:Audience" })
+            Assert.Single(configs.Select(c => c[key]).Distinct());
+    }
+
     private static void Validate(string service, IConfiguration config)
     {
         switch (service)
