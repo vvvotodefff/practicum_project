@@ -2,7 +2,9 @@ using System.ComponentModel.DataAnnotations;
 
 namespace ProjectWork.Events.Application.DTO
 {
-    /// <summary>Данные для создания события; идентификатор и свободные места назначает сервер.</summary>
+    /// <summary>
+    /// Данные для создания события; идентификатор и свободные места назначает сервер
+    /// </summary>
     public class CreateEvent
     {
         /// <summary>Обязательное название события.</summary>
