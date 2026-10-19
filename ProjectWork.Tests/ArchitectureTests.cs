@@ -1,36 +1,85 @@
-using System.Reflection;
-using ProjectWork.Application.Services;
-using ProjectWork.Domain.Entities;
-using ProjectWork.Infrastructure.Persistence;
+using System.Xml.Linq;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace ProjectWork.Tests;
 
 public class ArchitectureTests
 {
-    private static IEnumerable<string> References(Assembly assembly) =>
-        assembly.GetReferencedAssemblies().Select(reference => reference.Name!);
+    public static string Root()
+    {
+        var current = new DirectoryInfo(AppContext.BaseDirectory);
+        while (current is not null && !File.Exists(Path.Combine(current.FullName, "ProjectWork.slnx")))
+            current = current.Parent;
+        return current?.FullName ?? throw new InvalidOperationException("Solution root not found");
+    }
 
-    private static bool IsPlatform(string name) =>
-        name is "System" or "mscorlib" or "netstandard" || name.StartsWith("System.", StringComparison.Ordinal);
+    [Theory]
+    [InlineData("Users")]
+    [InlineData("Events")]
+    [InlineData("Bookings")]
+    public void ServiceReferences_StayInsideTheirBoundaryAndRespectLayers(string service)
+    {
+        var root = Root();
+        foreach (var layer in new[] { "Domain", "Application", "Infrastructure", "Presentation" })
+        {
+            var project = Path.Combine(root, "Services", service, $"ProjectWork.{service}.{layer}", $"ProjectWork.{service}.{layer}.csproj");
+            var allowed = layer switch
+            {
+                "Domain" => Array.Empty<string>(),
+                "Application" => new[] { "Domain" },
+                "Infrastructure" => new[] { "Domain", "Application" },
+                _ => new[] { "Application", "Infrastructure" }
+            };
+            foreach (var reference in XDocument.Load(project).Descendants("ProjectReference"))
+            {
+                var include = reference.Attribute("Include")!.Value.Replace('\\', '/');
+                var full = Path.GetFullPath(Path.Combine(Path.GetDirectoryName(project)!, include));
+                var contracts = Path.Combine(root, "Shared", "ProjectWork.Contracts", "ProjectWork.Contracts.csproj");
+                if (full == contracts)
+                {
+                    Assert.Contains(service, new[] { "Events", "Bookings" });
+                    Assert.Equal("Application", layer);
+                    continue;
+                }
+                Assert.StartsWith(Path.Combine(root, "Services", service), full);
+                Assert.Contains(Path.GetFileNameWithoutExtension(full).Split('.').Last(), allowed);
+            }
+            if (layer == "Domain")
+                Assert.Empty(XDocument.Load(project).Descendants("PackageReference"));
+        }
+    }
 
     [Fact]
-    public void Domain_ReferencesOnlyDotNetPlatform() =>
-        Assert.All(References(typeof(Event).Assembly), name =>
-            Assert.True(IsPlatform(name), $"Domain must not reference {name}."));
+    public void SharedContracts_HaveNoProjectOrPackageDependencies()
+    {
+        var project = XDocument.Load(Path.Combine(Root(), "Shared", "ProjectWork.Contracts", "ProjectWork.Contracts.csproj"));
+        Assert.Empty(project.Descendants("ProjectReference"));
+        Assert.Empty(project.Descendants("PackageReference"));
+    }
 
     [Fact]
-    public void Application_ReferencesOnlyDomainPlatformAndDiAbstractions() =>
-        Assert.All(References(typeof(EventService).Assembly), name =>
-            Assert.True(IsPlatform(name) || name is "ProjectWork.Domain" or "Microsoft.Extensions.DependencyInjection.Abstractions",
-                $"Application must not reference {name}."));
-
-    [Fact]
-    public void Infrastructure_DoesNotReferencePresentation() =>
-        Assert.DoesNotContain(References(typeof(AppDbContext).Assembly), name =>
-            name is "ProjectWork" or "ProjectWork.Presentation" || name.StartsWith("Microsoft.AspNetCore", StringComparison.Ordinal));
-
-    [Fact]
-    public void CoreTests_DoNotReferencePresentation() =>
-        Assert.DoesNotContain(References(typeof(ArchitectureTests).Assembly), name =>
-            name is "ProjectWork" or "ProjectWork.Presentation" || name.StartsWith("Microsoft.AspNetCore", StringComparison.Ordinal));
+    public void Models_ContainOnlyOwnedEntityAndHaveNoCrossServiceRelationships()
+    {
+        using var db = new TestDatabase();
+        using var scope = db.CreateScope();
+        DbContext[] contexts =
+        [
+            scope.ServiceProvider.GetRequiredService<ProjectWork.Users.Infrastructure.Persistence.UsersDbContext>(),
+            scope.ServiceProvider.GetRequiredService<ProjectWork.Events.Infrastructure.Persistence.EventsDbContext>(),
+            scope.ServiceProvider.GetRequiredService<ProjectWork.Bookings.Infrastructure.Persistence.BookingsDbContext>()
+        ];
+        // Events дополнительно хранит отметки обработанных сообщений (идемпотентность подписчика).
+        var names = new[] { new[] { "User" }, new[] { "Event", "ProcessedBooking" }, new[] { "Booking" } };
+        for (var i = 0; i < contexts.Length; i++)
+        {
+            var entities = contexts[i].Model.GetEntityTypes().OrderBy(e => e.ClrType.Name).ToList();
+            Assert.Equal(names[i], entities.Select(e => e.ClrType.Name));
+            Assert.All(entities, entity =>
+            {
+                Assert.Empty(entity.GetForeignKeys());
+                Assert.Empty(entity.GetNavigations());
+            });
+        }
+    }
 }

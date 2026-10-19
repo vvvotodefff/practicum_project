@@ -1,5 +1,6 @@
-using ProjectWork.Domain.Entities;
-using ProjectWork.Domain.Exceptions;
+using ProjectWork.Users.Domain.Entities;
+using ProjectWork.Bookings.Domain.Entities;
+using ProjectWork.Users.Domain.Exceptions;
 
 namespace ProjectWork.Tests;
 
@@ -86,7 +87,7 @@ public class Sprint8DomainTests
         var eventId = emptyEvent ? Guid.Empty : Guid.NewGuid();
         var userId = emptyEvent ? Guid.NewGuid() : Guid.Empty;
 
-        Assert.Throws<DomainValidationException>(() => Booking.Create(eventId, userId));
+        Assert.Throws<ProjectWork.Bookings.Domain.Exceptions.DomainValidationException>(() => Booking.Create(eventId, userId));
     }
 
     [Theory]
@@ -136,7 +137,7 @@ public class Sprint8DomainTests
         }
         var processedAt = booking.ProcessedAt;
 
-        Assert.Throws<DomainValidationException>(() =>
+        Assert.Throws<ProjectWork.Bookings.Domain.Exceptions.DomainValidationException>(() =>
         {
             if (confirm)
                 booking.Confirm();

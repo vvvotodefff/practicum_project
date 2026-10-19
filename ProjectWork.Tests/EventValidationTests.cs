@@ -1,5 +1,5 @@
-using ProjectWork.Domain.Entities;
-using ProjectWork.Domain.Exceptions;
+using ProjectWork.Events.Domain.Entities;
+using ProjectWork.Events.Domain.Exceptions;
 
 namespace ProjectWork.Tests;
 

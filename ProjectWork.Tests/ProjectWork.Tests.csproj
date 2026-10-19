@@ -21,10 +21,11 @@
     <Using Include="Xunit" />
   </ItemGroup>
 
-  <ItemGroup>
-    <ProjectReference Include="..\ProjectWork.Domain\ProjectWork.Domain.csproj" />
-    <ProjectReference Include="..\ProjectWork.Application\ProjectWork.Application.csproj" />
-    <ProjectReference Include="..\ProjectWork.Infrastructure\ProjectWork.Infrastructure.csproj" />
-  </ItemGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="../Services/Users/ProjectWork.Users.Infrastructure/ProjectWork.Users.Infrastructure.csproj" />
+    <ProjectReference Include="../Shared/ProjectWork.Contracts/ProjectWork.Contracts.csproj" />
+    <ProjectReference Include="../Services/Events/ProjectWork.Events.Infrastructure/ProjectWork.Events.Infrastructure.csproj" />
+    <ProjectReference Include="../Services/Bookings/ProjectWork.Bookings.Infrastructure/ProjectWork.Bookings.Infrastructure.csproj" />
+  </ItemGroup>
 </Project>

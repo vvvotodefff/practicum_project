@@ -1,0 +1,16 @@
+# В образ попадают только исходники: локальные bin/obj собраны под Windows.
+**/bin/
+**/obj/
+**/TestResults/
+**/.vs/
+**/*.user
+.git/
+.github/
+.vs/
+ProjectWork.Tests/
+ProjectWork.IntegrationTests/
+ProjectWork.PresentationTests/
+ProjectWork.Application/
+ProjectWork.Domain/
+ProjectWork.Infrastructure/
+ProjectWork.Presentation/
