@@ -124,5 +124,14 @@ namespace ProjectWork.Events.Presentation.Controllers
 
             return NoContent();
         }
+
+        /// <summary>
+        /// Получить 10 событий с наибольшим процентом проданных мест
+        /// </summary>
+        /// <response code="200">Успешно возвращает топ событий</response>
+        [HttpGet("top")]
+        [ProducesResponseType(typeof(IReadOnlyList<EventInfo>), StatusCodes.Status200OK)]
+        public async Task<ActionResult<IReadOnlyList<EventInfo>>> GetTopEvents() =>
+            Ok(await _eventService.GetTopEventsAsync());
     }
 }
