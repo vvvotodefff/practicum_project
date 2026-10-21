@@ -6,6 +6,8 @@ using ProjectWork.Events.Application.Abstractions.Repositories;
 using ProjectWork.Events.Infrastructure.Messaging;
 using ProjectWork.Events.Infrastructure.Persistence;
 using ProjectWork.Events.Infrastructure.Repositories;
+using ProjectWork.Events.Infrastructure.Caching;
+using StackExchange.Redis;
 
 namespace ProjectWork.Events.Infrastructure;
 
@@ -27,6 +29,18 @@ public static class DependencyInjection
         // Порядок важен: топик создаётся до запуска подписчика.
         services.AddHostedService<KafkaTopicInitializer>();
         services.AddHostedService<BookingConfirmedConsumer>();
+
+        var redisConnectionString = configuration["Redis:ConnectionString"];
+        if (string.IsNullOrWhiteSpace(redisConnectionString))
+            throw new InvalidOperationException("Не задана строка подключения Redis:ConnectionString.");
+        var redisOptions = ConfigurationOptions.Parse(redisConnectionString);
+        // Сервис должен стартовать и без Redis: клиент переподключится в фоне,
+        // а пока кеша нет, запросы идут напрямую в базу.
+        redisOptions.AbortOnConnectFail = false;
+
+        // Клиент Redis тяжёлый и потокобезопасный — одно соединение на всё приложение.
+        services.AddSingleton<IConnectionMultiplexer>(_ => ConnectionMultiplexer.Connect(redisOptions));
+        services.AddSingleton<ICacheService, RedisCacheService>();
         return services;
     }
 }
