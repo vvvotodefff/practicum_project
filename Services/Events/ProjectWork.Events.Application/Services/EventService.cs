@@ -53,8 +53,7 @@ public class EventService(IEventRepository eventRepository,
         var eventItem = Event.Create(request.Title, request.Description,
             request.StartAt, request.EndAt, request.TotalSeats ?? 0);
         await eventRepository.AddAsync(eventItem, cancellationToken);
-        await unitOfWork.SaveChangesAsync(cancellationToken);
-    
+        await unitOfWork.SaveChangesAsync(cancellationToken);    
         return EventInfo.FromEvent(eventItem);
     }
 
@@ -147,12 +146,10 @@ public class EventService(IEventRepository eventRepository,
             // Отмечаем и пропущенные сообщения: повторная доставка даёт тот же итог.
             await processedBookings.AddAsync(bookingId, cancellationToken);
             await unitOfWork.SaveChangesAsync(cancellationToken);
-
             if (result == BookingConfirmationResult.Applied) 
             {
                 await cache.RemoveAsync(CacheKeys.Event(eventId), cancellationToken);
             }
-
             return result;
         }
         finally { EventWriteLock.Gate.Release(); }
