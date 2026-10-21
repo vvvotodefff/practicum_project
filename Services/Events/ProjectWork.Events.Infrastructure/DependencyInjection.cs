@@ -3,10 +3,11 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using ProjectWork.Events.Application.Abstractions;
 using ProjectWork.Events.Application.Abstractions.Repositories;
+using ProjectWork.Events.Application.Common;
+using ProjectWork.Events.Infrastructure.Caching;
 using ProjectWork.Events.Infrastructure.Messaging;
 using ProjectWork.Events.Infrastructure.Persistence;
 using ProjectWork.Events.Infrastructure.Repositories;
-using ProjectWork.Events.Infrastructure.Caching;
 using StackExchange.Redis;
 
 namespace ProjectWork.Events.Infrastructure;
@@ -41,6 +42,9 @@ public static class DependencyInjection
         // Клиент Redis тяжёлый и потокобезопасный — одно соединение на всё приложение.
         services.AddSingleton<IConnectionMultiplexer>(_ => ConnectionMultiplexer.Connect(redisOptions));
         services.AddSingleton<ICacheService, RedisCacheService>();
+        services.AddSingleton(new CacheOptions(
+            configuration.GetValue("Redis:EventTtl", TimeSpan.FromMinutes(5)),
+            configuration.GetValue("Redis:TopEventsTtl", TimeSpan.FromMinutes(1))));
         return services;
     }
 }

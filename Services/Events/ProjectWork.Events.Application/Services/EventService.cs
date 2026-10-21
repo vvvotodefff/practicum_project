@@ -11,8 +11,11 @@ namespace ProjectWork.Events.Application.Services;
 /// <param name="eventRepository">Доступ к событиям в текущем scope.</param>
 /// <param name="processedBookings">Учёт уже обработанных подтверждений броней.</param>
 /// <param name="unitOfWork">Атомарное сохранение изменений текущего scope.</param>
+/// <param name="cache">Кеш событий и топа (Cache-Aside).</param>
+/// <param name="cacheOptions">Время жизни записей кеша.</param>
 public class EventService(IEventRepository eventRepository,
-    IProcessedBookingRepository processedBookings, IUnitOfWork unitOfWork) : IEventService
+    IProcessedBookingRepository processedBookings, IUnitOfWork unitOfWork,
+    ICacheService cache, CacheOptions cacheOptions) : IEventService
 {
     /// <inheritdoc />
     public async Task<PaginatedResult<EventInfo>> GetEventsAsync(string? title, DateTime? from,
@@ -32,8 +35,16 @@ public class EventService(IEventRepository eventRepository,
     /// <inheritdoc />
     public async Task<EventInfo?> GetEventByIdAsync(Guid id, CancellationToken cancellationToken = default)
     {
+        var key = CacheKeys.Event(id);
+        var cached = await cache.GetAsync<EventInfo>(key, cancellationToken);
+        if (cached is not null) return cached;
+
         var eventItem = await eventRepository.GetByIdAsync(id, cancellationToken);
-        return eventItem is null ? null : EventInfo.FromEvent(eventItem);
+        if (eventItem is null) return null;
+
+        var result = EventInfo.FromEvent(eventItem);
+        await cache.SetAsync(key, result, cacheOptions.EventTtl, cancellationToken);
+        return result;
     }
 
     /// <inheritdoc />
@@ -134,5 +145,17 @@ public class EventService(IEventRepository eventRepository,
             return result;
         }
         finally { EventWriteLock.Gate.Release(); }
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<EventInfo>> GetTopEventsAsync(CancellationToken cancellationToken = default)
+    {
+        var cached = await cache.GetAsync<List<EventInfo>>(CacheKeys.TopEvents, cancellationToken);
+        if (cached is not null) return cached;
+
+        var top = (await eventRepository.GetTopBySoldPercentAsync(10, cancellationToken))
+            .Select(EventInfo.FromEvent).ToList();
+        await cache.SetAsync(CacheKeys.TopEvents, top, cacheOptions.TopEventsTtl, cancellationToken);
+        return top;
     }
 }

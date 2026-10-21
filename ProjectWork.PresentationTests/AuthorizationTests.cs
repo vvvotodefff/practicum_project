@@ -189,11 +189,12 @@ public class AuthorizationTests(HttpApiFixture fixture)
         var e = (await events.GetFromJsonAsync<JsonElement>("/swagger/v1/swagger.json")).GetProperty("paths");
         var b = (await bookings.GetFromJsonAsync<JsonElement>("/swagger/v1/swagger.json")).GetProperty("paths");
         Assert.Equal(2, u.EnumerateObject().Count());
-        Assert.Equal(2, e.EnumerateObject().Count());
+        Assert.Equal(3, e.EnumerateObject().Count());
         Assert.Equal(2, b.EnumerateObject().Count());
         Assert.False(u.GetProperty("/auth/login").GetProperty("post").TryGetProperty("security", out _));
         Assert.False(e.GetProperty("/events").GetProperty("get").TryGetProperty("security", out _));
         Assert.True(e.GetProperty("/events").GetProperty("post").TryGetProperty("security", out _));
+        Assert.False(e.GetProperty("/events/top").GetProperty("get").TryGetProperty("security", out _));
         Assert.True(b.GetProperty("/bookings/{id}").GetProperty("get").TryGetProperty("security", out _));
     }
 }
