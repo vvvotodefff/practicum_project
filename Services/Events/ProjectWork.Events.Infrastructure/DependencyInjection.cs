@@ -38,6 +38,9 @@ public static class DependencyInjection
         // Сервис должен стартовать и без Redis: клиент переподключится в фоне,
         // а пока кеша нет, запросы идут напрямую в базу.
         redisOptions.AbortOnConnectFail = false;
+        // Без соединения команды сразу завершаются ошибкой, а не ждут в очереди до таймаута:
+        // иначе каждый запрос при упавшем Redis тормозил бы на секунды перед походом в базу.
+        redisOptions.BacklogPolicy = BacklogPolicy.FailFast;
 
         // Клиент Redis тяжёлый и потокобезопасный — одно соединение на всё приложение.
         services.AddSingleton<IConnectionMultiplexer>(_ => ConnectionMultiplexer.Connect(redisOptions));
