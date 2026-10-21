@@ -54,6 +54,7 @@ public class EventService(IEventRepository eventRepository,
             request.StartAt, request.EndAt, request.TotalSeats ?? 0);
         await eventRepository.AddAsync(eventItem, cancellationToken);
         await unitOfWork.SaveChangesAsync(cancellationToken);
+    
         return EventInfo.FromEvent(eventItem);
     }
 
@@ -70,6 +71,7 @@ public class EventService(IEventRepository eventRepository,
                 request.EndAt, request.TotalSeats ?? 0);
             await eventRepository.UpdateAsync(eventItem, cancellationToken);
             await unitOfWork.SaveChangesAsync(cancellationToken);
+            await cache.RemoveAsync(CacheKeys.Event(id), cancellationToken);
             return true;
         }
         finally { EventWriteLock.Gate.Release(); }
@@ -83,6 +85,7 @@ public class EventService(IEventRepository eventRepository,
         {
             if (!await eventRepository.DeleteAsync(id, cancellationToken)) return false;
             await unitOfWork.SaveChangesAsync(cancellationToken);
+            await cache.RemoveAsync(CacheKeys.Event(id), cancellationToken);
             return true;
         }
         finally { EventWriteLock.Gate.Release(); }
@@ -100,6 +103,7 @@ public class EventService(IEventRepository eventRepository,
             if (!eventItem.TryReserveSeats(count)) return false;
             await eventRepository.UpdateAsync(eventItem, cancellationToken);
             await unitOfWork.SaveChangesAsync(cancellationToken);
+            await cache.RemoveAsync(CacheKeys.Event(eventId), cancellationToken);
             return true;
         }
         finally { EventWriteLock.Gate.Release(); }
@@ -117,6 +121,7 @@ public class EventService(IEventRepository eventRepository,
             eventItem.ReleaseSeats(count);
             await eventRepository.UpdateAsync(eventItem, cancellationToken);
             await unitOfWork.SaveChangesAsync(cancellationToken);
+            await cache.RemoveAsync(CacheKeys.Event(eventId), cancellationToken);
         }
         finally { EventWriteLock.Gate.Release(); }
     }
@@ -142,6 +147,12 @@ public class EventService(IEventRepository eventRepository,
             // Отмечаем и пропущенные сообщения: повторная доставка даёт тот же итог.
             await processedBookings.AddAsync(bookingId, cancellationToken);
             await unitOfWork.SaveChangesAsync(cancellationToken);
+
+            if (result == BookingConfirmationResult.Applied) 
+            {
+                await cache.RemoveAsync(CacheKeys.Event(eventId), cancellationToken);
+            }
+
             return result;
         }
         finally { EventWriteLock.Gate.Release(); }
