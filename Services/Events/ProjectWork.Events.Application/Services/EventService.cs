@@ -1,9 +1,9 @@
 using ProjectWork.Events.Application.Abstractions;
 using ProjectWork.Events.Application.Abstractions.Repositories;
-using ProjectWork.Events.Application.DTO;
-using ProjectWork.Events.Domain.Exceptions;
-using ProjectWork.Events.Domain.Entities;
 using ProjectWork.Events.Application.Common;
+using ProjectWork.Events.Application.DTO;
+using ProjectWork.Events.Domain.Entities;
+using ProjectWork.Events.Domain.Exceptions;
 
 namespace ProjectWork.Events.Application.Services;
 
@@ -27,7 +27,9 @@ public class EventService(IEventRepository eventRepository,
             page, pageSize, cancellationToken);
         return new PaginatedResult<EventInfo>
         {
-            TotalCount = result.TotalCount, Page = result.Page, PageSize = result.PageSize,
+            TotalCount = result.TotalCount,
+            Page = result.Page,
+            PageSize = result.PageSize,
             Items = result.Items.Select(EventInfo.FromEvent).ToList()
         };
     }
@@ -53,7 +55,7 @@ public class EventService(IEventRepository eventRepository,
         var eventItem = Event.Create(request.Title, request.Description,
             request.StartAt, request.EndAt, request.TotalSeats ?? 0);
         await eventRepository.AddAsync(eventItem, cancellationToken);
-        await unitOfWork.SaveChangesAsync(cancellationToken);    
+        await unitOfWork.SaveChangesAsync(cancellationToken);
         return EventInfo.FromEvent(eventItem);
     }
 
@@ -146,7 +148,7 @@ public class EventService(IEventRepository eventRepository,
             // Отмечаем и пропущенные сообщения: повторная доставка даёт тот же итог.
             await processedBookings.AddAsync(bookingId, cancellationToken);
             await unitOfWork.SaveChangesAsync(cancellationToken);
-            if (result == BookingConfirmationResult.Applied) 
+            if (result == BookingConfirmationResult.Applied)
             {
                 await cache.RemoveAsync(CacheKeys.Event(eventId), cancellationToken);
             }

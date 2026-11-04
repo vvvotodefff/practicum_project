@@ -1,4 +1,4 @@
-# ProjectWork — спринт 10
+# ProjectWork — спринт 11
 
 Учебная система бронирования на C# / .NET 10 / ASP.NET Core / EF Core / PostgreSQL / Apache Kafka.
 Монолит разделён на три самостоятельных сервиса, которые обмениваются данными только через Kafka.
@@ -30,7 +30,8 @@ Presentation), имеет свою базу и свои миграции EF Core
 docker compose up -d --build
 ```
 
-Поднимаются Zookeeper, Kafka, Redis, три PostgreSQL и три сервиса. Каждый сервис при старте
+Поднимаются Zookeeper, Kafka, Redis, три PostgreSQL, три сервиса, а также Prometheus, Jaeger и Grafana
+(см. [Наблюдаемость](#наблюдаемость)). Каждый сервис при старте
 применяет свои миграции; Events дополнительно создаёт топик `booking-confirmed`.
 Сервисы ждут готовности своих БД и Kafka (healthcheck).
 
@@ -261,6 +262,74 @@ singleton на всё приложение.
 Риск: если Redis был недоступен в момент изменения события, а потом вернулся, в нём
 может остаться старая копия — она истечёт по `EventTtl`.
 
+## Наблюдаемость
+
+Все три сервиса передают телеметрию через OpenTelemetry SDK, а логи пишут через Serilog.
+
+| Инструмент | Что делает | Адрес |
+| --- | --- | --- |
+| Prometheus | Собирает метрики с `/metrics` каждого сервиса раз в 15 секунд | http://localhost:9090 |
+| Jaeger | Хранит и показывает трейсы, принимает их по OTLP (`4317`) | http://localhost:16686 |
+| Grafana | Показывает дашборд с метриками (логин `admin`, пароль `admin`) | http://localhost:3000 |
+
+Метрики сервисов доступны без авторизации: http://localhost:5250/metrics (Users),
+http://localhost:5251/metrics (Events), http://localhost:5252/metrics (Bookings).
+
+### Запуск стека мониторинга
+
+Prometheus, Jaeger и Grafana входят в [docker-compose.yml](docker-compose.yml) и поднимаются вместе с системой:
+
+```powershell
+docker compose up -d --build
+```
+
+Флаг `--build` нужен после изменения кода: без него контейнеры запустятся из старых образов.
+Prometheus обращается к сервисам по именам `users-api`, `events-api` и `bookings-api`
+([prometheus.yml](prometheus.yml)), поэтому метрики собираются только с сервисов в Docker.
+Сервисы, запущенные через `dotnet run`, отправляют трейсы в Jaeger на `localhost:4317`,
+но Prometheus их не видит. Проверить сбор метрик можно в Prometheus: Status → Targets,
+все три цели должны быть в состоянии UP.
+
+### Дашборд Grafana
+
+Источник данных и дашборд подключаются вручную, один раз; настройки хранятся в томе `grafana-data`.
+
+1. Connections → Data sources → Add data source → Prometheus, URL `http://prometheus:9090`, Save & test.
+2. Dashboards → New → Import, загрузите [Grafana/dashboard.json](Grafana/dashboard.json) и выберите источник Prometheus.
+
+| Панель | Метрика | Что показывает |
+| --- | --- | --- |
+| Latency | `http_server_request_duration_seconds` (`_bucket`) | Время ответа: p50, p95, p99 |
+| Throughput (RPS) | `http_server_request_duration_seconds_count` | Запросов в секунду |
+| Активные запросы | `http_server_active_requests` | Запросы в обработке прямо сейчас |
+| Error rate | `http_server_request_duration_seconds_count` с кодом 5xx | Доля ответов 5xx; пока их не было, панель пустая |
+
+Запросы Prometheus к `/metrics` тоже попадают в эти метрики, поэтому небольшой RPS виден даже без нагрузки.
+
+### Трейсы
+
+В трейсах есть входящие и исходящие HTTP-запросы и запросы EF Core к базе. Чтобы их посмотреть,
+откройте Jaeger, выберите `users-service`, `events-service` или `bookings-service` и нажмите Find Traces.
+
+### Логи
+
+Serilog пишет логи в консоль в формате JSON (`CompactJsonFormatter`): время — `@t`, шаблон сообщения — `@mt`,
+уровень — `@l` (у Information его нет), идентификаторы трейса и спана — `@tr` и `@sp`. Посмотреть логи сервиса:
+
+```powershell
+docker compose logs -f bookings-api
+```
+
+Строки вида `%3|...|FAIL|...` пишет сам клиент Kafka, когда брокер недоступен: они не проходят через Serilog и остаются не в JSON.
+
+### Настройки
+
+| Ключ | Назначение |
+| --- | --- |
+| `Otlp:Endpoint` | Адрес приёма трейсов: `http://localhost:4317`, в Docker — `http://jaeger:4317` |
+| `Otlp:ServiceName` | Имя сервиса в Jaeger и Prometheus |
+| `Serilog:MinimumLevel` | Минимальный уровень логов; секция `Logging` на вывод Serilog не влияет |
+
 ## Ограничения
 
 - Сохранение брони и публикация не составляют общей транзакции: при сбое между ними бронь
@@ -284,8 +353,11 @@ Shared/
 ProjectWork.Tests/               unit-тесты
 ProjectWork.IntegrationTests/    репозитории и миграции на PostgreSQL
 ProjectWork.PresentationTests/   HTTP, JWT, Kafka
+Grafana/
+  dashboard.json   дашборд для импорта в Grafana
 scripts/
 docker-compose.yml
+prometheus.yml   цели сбора метрик
 ProjectWork.slnx
 ```
 

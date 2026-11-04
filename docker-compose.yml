@@ -129,6 +129,7 @@ services:
       <<: *jwt
       Jwt__LifetimeMinutes: 60
       ConnectionStrings__DefaultConnection: Host=users-db;Port=5432;Database=users;Username=postgres;Password=postgres
+      Otlp__Endpoint: http://jaeger:4317 
 
   events-api:
     build:
@@ -151,6 +152,7 @@ services:
       Kafka__ConsumerGroup: events-group
       # Внутри сети Docker Redis доступен по имени сервиса, а не через localhost.
       Redis__ConnectionString: redis:6379,abortConnect=false
+      Otlp__Endpoint: http://jaeger:4317 
 
   bookings-api:
     build:
@@ -168,8 +170,37 @@ services:
       <<: *jwt
       ConnectionStrings__DefaultConnection: Host=bookings-db;Port=5432;Database=bookings;Username=postgres;Password=postgres
       Kafka__BootstrapServers: kafka:29092
+      Otlp__Endpoint: http://jaeger:4317 
+
+  prometheus:
+    image: prom/prometheus:v2.51.0
+    container_name: eventapi-prometheus
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.56
+    container_name: eventapi-jaeger
+    ports:
+      - "16686:16686"   # UI
+      - "4317:4317"     # OTLP gRPC
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+
+  grafana:
+    image: grafana/grafana:10.4.2
+    container_name: eventapi-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+    volumes:
+      - grafana-data:/var/lib/grafana
 
 volumes:
   users-db-data:
   events-db-data:
   bookings-db-data:
+  grafana-data: 
