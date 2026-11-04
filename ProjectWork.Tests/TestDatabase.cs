@@ -25,6 +25,9 @@ internal sealed class TestDatabase : IDisposable
         services.AddScoped<ProjectWork.Events.Application.Abstractions.IUnitOfWork, ProjectWork.Events.Infrastructure.Persistence.UnitOfWork>();
         services.AddScoped<ProjectWork.Events.Application.Abstractions.Repositories.IEventRepository, ProjectWork.Events.Infrastructure.Repositories.EventRepository>();
         services.AddScoped<ProjectWork.Events.Application.Abstractions.Repositories.IProcessedBookingRepository, ProjectWork.Events.Infrastructure.Repositories.ProcessedBookingRepository>();
+        services.AddSingleton<ProjectWork.Events.Application.Abstractions.ICacheService, NoCacheService>();
+        services.AddSingleton(new ProjectWork.Events.Application.Common.CacheOptions(
+            TimeSpan.FromMinutes(5), TimeSpan.FromMinutes(1)));
         ProjectWork.Events.Application.DependencyInjection.AddApplicationServices(services);
         services.AddDbContext<ProjectWork.Bookings.Infrastructure.Persistence.BookingsDbContext>(o => o.UseInMemoryDatabase(name + "Bookings"));
         services.AddScoped<ProjectWork.Bookings.Application.Abstractions.IUnitOfWork, ProjectWork.Bookings.Infrastructure.Persistence.UnitOfWork>();

@@ -39,4 +39,9 @@ public interface IEventService
     /// </summary>
     Task<BookingConfirmationResult> ApplyBookingConfirmedAsync(Guid bookingId, Guid eventId,
         int seatsCount, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Получить 10 событий с наибольшим процентом проданных мест.
+    /// </summary>
+    Task<IReadOnlyList<EventInfo>> GetTopEventsAsync(CancellationToken cancellationToken = default);
 }

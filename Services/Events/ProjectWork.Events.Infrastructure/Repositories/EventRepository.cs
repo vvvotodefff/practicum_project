@@ -78,4 +78,14 @@ public sealed class EventRepository(EventsDbContext context) : IEventRepository
         context.Events.Remove(eventItem);
         return true;
     }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<Event>> GetTopBySoldPercentAsync(int count,
+        CancellationToken cancellationToken = default) =>
+        await context.Events.AsNoTracking()
+            // без (double) деление целочисленное и почти всё даст 0.
+            .OrderByDescending(e => (double)(e.TotalSeats - e.AvailableSeats) / e.TotalSeats)
+            .ThenBy(e => e.Id)
+            .Take(count)
+            .ToListAsync(cancellationToken);
 }

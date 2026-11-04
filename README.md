@@ -1,4 +1,4 @@
-# ProjectWork — спринт 9
+# ProjectWork — спринт 10
 
 Учебная система бронирования на C# / .NET 10 / ASP.NET Core / EF Core / PostgreSQL / Apache Kafka.
 Монолит разделён на три самостоятельных сервиса, которые обмениваются данными только через Kafka.
@@ -12,7 +12,8 @@
 | Events | CRUD событий, учёт свободных мест, подписчик Kafka | http://localhost:5251/swagger | localhost:5442 / events |
 | Bookings | Создание, чтение, отмена и фоновое подтверждение броней, издатель Kafka | http://localhost:5252/swagger | localhost:5443 / bookings |
 
-Инфраструктура: Zookeeper, Kafka (`localhost:9092` с хоста, `kafka:29092` внутри сети Docker).
+Инфраструктура: Zookeeper, Kafka (`localhost:9092` с хоста, `kafka:29092` внутри сети Docker),
+Redis — кеш Events (`localhost:6379` с хоста, `redis:6379` внутри сети Docker).
 
 Каждый сервис построен по чистой архитектуре (Domain, Application, Infrastructure,
 Presentation), имеет свою базу и свои миграции EF Core. Сервисы не вызывают друг
@@ -29,7 +30,7 @@ Presentation), имеет свою базу и свои миграции EF Core
 docker compose up -d --build
 ```
 
-Поднимаются Zookeeper, Kafka, три PostgreSQL и три сервиса. Каждый сервис при старте
+Поднимаются Zookeeper, Kafka, Redis, три PostgreSQL и три сервиса. Каждый сервис при старте
 применяет свои миграции; Events дополнительно создаёт топик `booking-confirmed`.
 Сервисы ждут готовности своих БД и Kafka (healthcheck).
 
@@ -49,7 +50,7 @@ JWT-секрет общий для трёх сервисов; по умолча�
 Нужен .NET SDK 10. Поднимите только инфраструктуру и запустите сервисы из трёх терминалов:
 
 ```powershell
-docker compose up -d --wait zookeeper kafka users-db events-db bookings-db
+docker compose up -d --wait zookeeper kafka redis users-db events-db bookings-db
 ```
 
 ```powershell
@@ -79,6 +80,8 @@ Production без явно заданного `Jwt__Secret` не запусти�
 | `Jwt:LifetimeMinutes` | Users | Время жизни выдаваемого токена |
 | `Kafka:BootstrapServers` | Events, Bookings | Адрес брокера |
 | `Kafka:ConsumerGroup` | Events | Группа потребителей (`events-group`) |
+| `Redis:ConnectionString` | Events | Строка подключения StackExchange.Redis |
+| `Redis:EventTtl`, `Redis:TopEventsTtl` | Events | TTL кеша события и топа-10 (`чч:мм:сс`) |
 
 ## Поток BookingConfirmed
 
@@ -136,7 +139,8 @@ Producer один на приложение (singleton), при остановк
 | Users | POST /auth/register | Публично, 204; ошибка 400 |
 | Users | POST /auth/login | Публично, 200 с полем token; ошибка 400 |
 | Events | GET /events | Публично, фильтры title/from/to, пагинация page/pageSize |
-| Events | GET /events/{id} | Публично, 200 / 404 |
+| Events | GET /events/{id} | Публично, 200 / 404; кешируется |
+| Events | GET /events/top | Публично, 10 событий с наибольшей долей проданных мест; кешируется |
 | Events | POST /events | Admin, 201 с Location |
 | Events | PUT /events/{id} | Admin, 204 / 404 |
 | Events | DELETE /events/{id} | Admin, 204 / 404 |
@@ -177,6 +181,86 @@ Title обязателен (до 200 символов), Description — до 200
 docker exec -it eventapi-kafka kafka-console-consumer --bootstrap-server localhost:29092 --topic booking-confirmed --from-beginning --property print.key=true
 ```
 
+## Кеширование (Redis)
+
+Events кеширует чтение в Redis по паттерну **Cache-Aside**: сервис сначала смотрит в кеш,
+при промахе читает базу и кладёт результат в кеш с TTL. Redis спрятан за интерфейсом
+`ICacheService` (Application), реализация — `RedisCacheService` (Infrastructure); ключи
+собраны в `CacheKeys`, значения хранятся в JSON. Соединение `IConnectionMultiplexer` —
+singleton на всё приложение.
+
+| Ключ | Что лежит | Эндпоинт | TTL | Обновление |
+| --- | --- | --- | --- | --- |
+| `event:{id}` | Одно событие (`EventInfo`) | GET /events/{id} | `Redis:EventTtl`, 5 мин | Удаление при записи + TTL |
+| `events:top10` | 10 событий с наибольшей долей проданных мест | GET /events/top | `Redis:TopEventsTtl`, 1 мин | Только TTL |
+
+### Что и почему кешируется
+
+- **Топ-10** (`GET /events/top`, публичный) запрашивает каждый посетитель главной страницы,
+  а запрос сортирует все события по `(total_seats - available_seats) / total_seats`.
+  Пересчитывать его на каждый запрос дорого, а результат один для всех.
+- **Событие по идентификатору** читается намного чаще, чем меняется: каждую карточку
+  открывают многие пользователи, а правят её администратор и подтверждения броней.
+
+Список `GET /events` с фильтрами и пагинацией не кешируется: комбинаций параметров
+слишком много, попаданий было бы мало, а инвалидировать пришлось бы всё.
+
+### Стратегия обновления
+
+**Событие — удаление при записи (invalidate on write).** После успешного сохранения в базу
+сервис удаляет ключ `event:{id}`; следующий GET читает базу и прогревает кеш заново.
+Ключ удаляется в `UpdateEventAsync` (PUT), `DeleteEventAsync` (DELETE) и
+`ApplyBookingConfirmedAsync` — его вызывает подписчик Kafka `booking-confirmed`, когда
+списывает места, поэтому `availableSeats` не залипает в кеше после брони. Если событие не
+найдено или бронь уже была обработана, данные не менялись и кеш не трогается.
+Создание события кеш не трогает: под новым id в кеше ничего нет.
+
+Почему удаление, а не обновление кеша вместе с базой: оно проще и безопаснее — в кеш
+никогда не попадёт значение, которого нет в базе, и не нужно повторять в кеше логику
+пересчёта мест. Цена — один лишний запрос к базе после каждого изменения, для редких
+изменений это незаметно.
+
+**Порядок операций — сначала база, потом кеш.** Если процесс оборвётся между
+`SaveChangesAsync` и удалением ключа, база уже актуальна, а устаревшая запись проживёт
+не дольше TTL. Если сохранение в базу упало, ключ не удаляется — данные не изменились.
+
+**Топ — только TTL.** Это рейтинговый агрегат, устаревание на минуту некритично. Явная
+инвалидация при каждом бронировании и изменении любого события сбрасывала бы топ
+постоянно и сводила кеш на нет.
+
+### Выбор TTL
+
+- `EventTtl` = 5 минут — страховка, а не основной механизм актуальности: изменения
+  события снимает инвалидация. TTL ограничивает срок жизни устаревшей записи в редких
+  случаях — сбой между записью в базу и удалением ключа, недоступный в момент записи
+  Redis, гонка медленного читателя с записью (читатель взял из базы старое значение и
+  положил его в кеш уже после удаления ключа).
+- `TopEventsTtl` = 1 минута — единственный механизм обновления топа, поэтому короче:
+  продажи отражаются в рейтинге не позже чем через минуту, а база при этом получает
+  не больше одного тяжёлого запроса в минуту вместо запроса от каждого посетителя.
+
+Оба значения и строка подключения задаются в `appsettings.json` (секция `Redis`) и
+переопределяются переменными окружения (`Redis__ConnectionString`, `Redis__EventTtl`,
+`Redis__TopEventsTtl`). В Docker сервис подключается к `redis:6379`.
+
+### Если Redis недоступен
+
+Кеш деградирует без ошибки для клиента: `RedisCacheService` ловит и логирует (Warning)
+ошибки Redis — чтение возвращает промах и запрос идёт в базу, запись и удаление
+пропускаются. `AbortOnConnectFail = false`, поэтому сервис стартует и без Redis,
+а клиент сам переподключается, когда Redis вернётся. `BacklogPolicy.FailFast`: без
+соединения команда сразу завершается ошибкой, а не ждёт в очереди до таймаута, — иначе
+каждый запрос при упавшем Redis тормозил бы на секунды перед походом в базу.
+
+Проверить вручную: `docker compose stop redis` — GET/PUT/DELETE событий и
+`GET /events/top` продолжают работать, в логах `events-api` появляются предупреждения
+`RedisCacheService`; после `docker compose start redis` кеш снова наполняется.
+Содержимое кеша: `docker exec eventapi-redis redis-cli KEYS "event*"`, срок жизни —
+`docker exec eventapi-redis redis-cli TTL events:top10`.
+
+Риск: если Redis был недоступен в момент изменения события, а потом вернулся, в нём
+может остаться старая копия — она истечёт по `EventTtl`.
+
 ## Ограничения
 
 - Сохранение брони и публикация не составляют общей транзакции: при сбое между ними бронь
@@ -193,7 +277,7 @@ docker exec -it eventapi-kafka kafka-console-consumer --bootstrap-server localho
 ```text
 Services/
   Users/     Domain, Application, Infrastructure, Presentation, Dockerfile
-  Events/    Domain, Application, Infrastructure (+ Messaging: подписчик, создание топика), Presentation, Dockerfile
+  Events/    Domain, Application, Infrastructure (+ Messaging: подписчик, создание топика; Caching: Redis), Presentation, Dockerfile
   Bookings/  Domain, Application, Infrastructure (+ Messaging: издатель), Presentation, Dockerfile
 Shared/
   ProjectWork.Contracts/   BookingConfirmed и имя топика
@@ -229,6 +313,9 @@ dotnet test ProjectWork.slnx --configuration Release --verbosity minimal
 
 - ProjectWork.Tests: доменные правила, сервисы, JWT, зависимости слоёв, порядок
   сохранения и публикации, идемпотентное применение подтверждений в Events.
+  `EventCachingTests` — кеширование Events на заглушках кеша и репозитория: попадание
+  (репозиторий не вызывается), промах (данные из репозитория сохраняются с нужным TTL)
+  и инвалидация после PUT, DELETE и подтверждения брони — строго после записи в базу.
 - ProjectWork.IntegrationTests: репозитории и миграции каждого сервиса на PostgreSQL.
 - ProjectWork.PresentationTests: три HTTP-конвейера, 401/403/404, совпадение JWT-настроек
   сервисов, Swagger. `KafkaPublicationTests` — публикация из Bookings на настоящем брокере;

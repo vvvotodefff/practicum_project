@@ -38,4 +38,9 @@ public interface IEventRepository
     /// Подготовить удаление события и броней; вернуть false, если события нет. Сохранение выполняет IUnitOfWork.
     /// </summary>
     Task<bool> DeleteAsync(Guid id, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Получить события с наибольшим процентом проданных мест без отслеживания изменений.
+    /// </summary>
+    Task<IReadOnlyList<Event>> GetTopBySoldPercentAsync(int count, CancellationToken cancellationToken = default);
 }
